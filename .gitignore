@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+gerar_nadia_pdf.py
+gerar_pdf_nadia.py
+main_replit.py
+/gestar_ilustracao.png
+/gestar_logo_transparente.png
+/gestar_bem_svg.png

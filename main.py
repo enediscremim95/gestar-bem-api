@@ -1,0 +1,446 @@
+# -*- coding: utf-8 -*-
+"""
+main.py — Replit Flask API — Gestar Bem
+Recebe dados do formulario via Apps Script, calcula TMB/macros,
+gera plano com Claude, converte em PDF e envia por email.
+
+Formula TMB: Mifflin-St Jeor
+  Mulheres: (10 x peso) + (6,25 x altura) - (5 x idade) - 161
+Fator atividade:
+  Sedentaria     = 1.2
+  Leve           = 1.375
+  Moderada       = 1.55
+  Avancada/Intensa = 1.725
+"""
+
+import os, smtplib, ssl, logging
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import base64
+
+from flask import Flask, request, jsonify
+import anthropic
+from pdf_generator import gerar_pdf_base64, nome_arquivo_pdf
+
+app = Flask(__name__)
+log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+
+# ── Funcao de envio de email ─────────────────────────────────────────────────
+
+def enviar_email_pdf(destinatario, nome_paciente, pdf_bytes, nome_arquivo):
+    """Envia o PDF por email via Gmail SMTP SSL (porta 465)."""
+    remetente = os.environ.get('GMAIL_USER', '')
+    senha     = os.environ.get('GMAIL_APP_PASSWORD', '')
+
+    msg = MIMEMultipart()
+    msg['From']    = remetente
+    msg['To']      = destinatario
+    msg['Subject'] = f'Seu Plano Personalizado — Gestar Bem 💜'
+
+    corpo = f"""Olá, {nome_paciente}! 💜
+
+Seu plano personalizado do programa Gestar Bem está pronto!
+
+Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.
+
+Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.
+
+Com carinho,
+Equipe Gestar Bem 🌸"""
+
+    msg.attach(MIMEText(corpo, 'plain', 'utf-8'))
+
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(pdf_bytes)
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', f'attachment; filename="{nome_arquivo}"')
+    msg.attach(part)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as server:
+        server.login(remetente, senha)
+        server.sendmail(remetente, destinatario, msg.as_string())
+    log.info(f"Email enviado para {destinatario}")
+
+
+# ── Calculos clinicos (TMB, macros, hidratacao) ──────────────────────────────
+
+def calcular_dados_clinicos(dados):
+    """
+    Calcula TMB (Mifflin-St Jeor), manutencao, calorias alvo,
+    macros em gramas e hidratacao.
+    Retorna dict com todos os valores ou None se nao for possivel calcular.
+    """
+    try:
+        peso   = float(str(dados.get('peso_atual', '')).replace(',', '.'))
+        alt    = float(str(dados.get('altura', '')).replace(',', '.'))
+        idade  = float(str(dados.get('idade', '')).replace(',', '.'))
+        semanas = int(str(dados.get('semanas_gestacao', '0')).replace(',', '.').split('.')[0])
+        nivel   = str(dados.get('nivel_exercicio', '')).lower()
+        glicose = str(dados.get('exames_glicose', dados.get('exames_anexo', '')))
+
+        # Trimestre
+        if semanas <= 13:
+            trimestre = "I"
+            tri_nome  = "Primeiro Trimestre (semanas 1–13)"
+        elif semanas <= 26:
+            trimestre = "II"
+            tri_nome  = "Segundo Trimestre (semanas 14–26)"
+        else:
+            trimestre = "III"
+            tri_nome  = "Terceiro Trimestre (semanas 27–40)"
+
+        # TMB — Mifflin-St Jeor para mulheres
+        tmb = (10 * peso) + (6.25 * alt) - (5 * idade) - 161
+
+        # Fator de atividade
+        if 'sedent' in nivel:
+            fator = 1.2;   fator_nome = "Sedentaria (x1,2)"
+        elif 'leve' in nivel or 'iniciante' in nivel:
+            fator = 1.375; fator_nome = "Levemente ativa (x1,375)"
+        elif 'moder' in nivel or 'intermedi' in nivel:
+            fator = 1.55;  fator_nome = "Moderadamente ativa (x1,55)"
+        elif 'avan' in nivel or 'intens' in nivel:
+            fator = 1.725; fator_nome = "Muito ativa (x1,725)"
+        else:
+            fator = 1.375; fator_nome = "Levemente ativa (x1,375)"
+
+        manutencao = tmb * fator
+
+        # Peso ideal estimado (formula 22 x altura^2) para definir estrategia
+        altura_m   = alt / 100
+        peso_ideal = 22 * (altura_m ** 2)
+        excesso    = peso - peso_ideal
+
+        # Estrategia calorica
+        if excesso > 5:
+            # Sobrepeso/obesidade: deficit de 300-500 kcal
+            calorias_alvo = manutencao - 400
+            estrategia = (
+                f"SOBREPESO/OBESIDADE — deficit de 400 kcal. "
+                f"Peso atual {peso:.1f}kg, peso ideal estimado {peso_ideal:.1f}kg "
+                f"(excesso de {excesso:.1f}kg). Objetivo: emagrecimento controlado e seguro."
+            )
+        else:
+            if trimestre == "I":
+                calorias_alvo = manutencao
+                estrategia = "PESO ADEQUADO — 1o trimestre: manutencao de peso."
+            elif trimestre == "II":
+                calorias_alvo = manutencao + 340
+                estrategia = "PESO ADEQUADO — 2o trimestre: +340 kcal acima da manutencao."
+            else:
+                calorias_alvo = manutencao + 450
+                estrategia = "PESO ADEQUADO — 3o trimestre: +450 kcal acima da manutencao."
+
+        # Macronutrientes (35% prot / 40% carb / 25% gord)
+        prot_kcal = calorias_alvo * 0.35
+        carb_kcal = calorias_alvo * 0.40
+        gord_kcal = calorias_alvo * 0.25
+        prot_g    = prot_kcal / 4
+        carb_g    = carb_kcal / 4
+        gord_g    = gord_kcal / 9
+
+        # Hidratacao (1o e 2o tri: peso x 35ml | 3o tri: peso x 40ml)
+        agua_ml   = peso * 40 if trimestre == "III" else peso * 35
+        agua_l    = agua_ml / 1000
+
+        return {
+            "tmb":           round(tmb),
+            "fator_nome":    fator_nome,
+            "manutencao":    round(manutencao),
+            "calorias_alvo": round(calorias_alvo),
+            "estrategia":    estrategia,
+            "prot_g":        round(prot_g),
+            "carb_g":        round(carb_g),
+            "gord_g":        round(gord_g),
+            "agua_l":        round(agua_l, 1),
+            "trimestre":     trimestre,
+            "tri_nome":      tri_nome,
+        }
+
+    except Exception as e:
+        log.warning(f"Nao foi possivel calcular dados clinicos: {e}")
+        return None
+
+
+# ── Endpoint principal ───────────────────────────────────────────────────────
+
+@app.route('/gerar-plano', methods=['POST'])
+def gerar_plano():
+    dados = request.get_json()
+
+    # Extrair campos do formulario
+    nome               = dados.get('nome', 'Paciente')
+    email              = dados.get('email', '')
+    whatsapp           = dados.get('whatsapp', '')
+    instagram          = dados.get('instagram', '')
+    pais               = dados.get('pais', 'Brasil')
+    idade              = dados.get('idade', '')
+    altura             = dados.get('altura', '')
+    semanas_gestacao   = dados.get('semanas_gestacao', '')
+    peso_atual         = dados.get('peso_atual', '')
+    peso_antes         = dados.get('peso_antes', '')
+    peso_primeira      = dados.get('peso_primeira_consulta', '')
+    complicacoes       = dados.get('complicacoes', 'Nenhuma')
+    medicamentos       = dados.get('medicamentos', 'Nenhum')
+    suplementos        = dados.get('suplementos', 'Nenhum')
+    gravidez_planejada = dados.get('gravidez_planejada', '')
+    sintomas           = dados.get('sintomas', '')
+    outros_sintomas    = dados.get('outros_sintomas', '')
+    sono               = dados.get('sono', '')
+    medo_gravidez      = dados.get('medo_gravidez', '')
+    liberado_exercicio = dados.get('liberado_exercicio', '')
+    nivel_exercicio    = dados.get('nivel_exercicio', '')
+    periodo_exercicio  = dados.get('periodo_exercicio', '')
+    rotina_exercicio   = dados.get('rotina_exercicio', '')
+    limitacao_exercicio= dados.get('limitacao_exercicio', '')
+    rotina_alimentacao = dados.get('rotina_alimentacao', '')
+    hidratacao         = dados.get('hidratacao', '')
+    intolerancia       = dados.get('intolerancia', '')
+    nivel_intolerancia = dados.get('nivel_intolerancia', '')
+    horario_fome       = dados.get('horario_fome', '')
+    observacoes        = dados.get('observacoes', '')
+    exames_anexo       = dados.get('exames_anexo', '')
+
+    # Calculos clinicos automaticos
+    calculos = calcular_dados_clinicos(dados)
+
+    if calculos:
+        bloco_calculos = f"""
+CALCULOS CLINICOS JA REALIZADOS (use estes valores exatos no plano):
+- Trimestre: {calculos['tri_nome']}
+- TMB (Mifflin-St Jeor): {calculos['tmb']} kcal
+- Nivel de atividade: {calculos['fator_nome']}
+- Calorias de manutencao: {calculos['manutencao']} kcal
+- Calorias alvo do plano: {calculos['calorias_alvo']} kcal
+- Estrategia: {calculos['estrategia']}
+- Proteina: {calculos['prot_g']}g/dia (35% das calorias — 4 kcal/g)
+- Carboidrato: {calculos['carb_g']}g/dia (40% das calorias — 4 kcal/g)
+- Gordura: {calculos['gord_g']}g/dia (25% das calorias — 9 kcal/g)
+- Meta de agua: {calculos['agua_l']}L/dia"""
+    else:
+        bloco_calculos = """
+CALCULOS CLINICOS: Nao foi possivel calcular automaticamente.
+Use sua experiencia clinica para estimar calorias e macros com base nos dados fornecidos.
+Padrao: 35% proteina / 40% carboidrato / 25% gordura."""
+
+    # ── Prompt clinico completo para o Claude ────────────────────────────────
+    prompt = f"""Voce e Dra. Ana, nutricionista especialista em gestacao da equipe Gestar Bem.
+Seu metodo e clinico, estrategico e individualizado — nunca generico.
+
+DADOS DA GESTANTE:
+- Nome: {nome}
+- Idade: {idade} anos
+- Pais: {pais}
+- Semanas de gestacao: {semanas_gestacao}
+- Peso atual: {peso_atual} kg
+- Peso antes da gestacao: {peso_antes} kg
+- Peso na primeira consulta: {peso_primeira} kg
+- Altura: {altura} cm
+- Complicacoes: {complicacoes}
+- Medicamentos: {medicamentos}
+- Suplementos em uso: {suplementos}
+- Gravidez planejada: {gravidez_planejada}
+- Sintomas atuais: {sintomas}
+- Outros sintomas: {outros_sintomas}
+- Qualidade do sono: {sono}
+- Medos e preocupacoes: {medo_gravidez}
+- Liberada pelo medico para exercicios: {liberado_exercicio}
+- Nivel de exercicio habitual: {nivel_exercicio}
+- Periodo preferido para exercicios: {periodo_exercicio}
+- Rotina de exercicios atual: {rotina_exercicio}
+- Limitacoes fisicas para exercicios: {limitacao_exercicio}
+- Rotina alimentar atual: {rotina_alimentacao}
+- Hidratacao atual: {hidratacao}
+- Intolerancia alimentar: {intolerancia}
+- Nivel da intolerancia: {nivel_intolerancia}
+- Horario de mais fome: {horario_fome}
+- Observacoes adicionais: {observacoes}
+- Exames / arquivos enviados: {exames_anexo}
+
+{bloco_calculos}
+
+PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
+
+1. ANALISE DE EXAMES (aplique estas condutas se houver valores informados):
+   - Glicose >= 92 mg/dL → Diabetes gestacional: plano com controle glicemico rigoroso,
+     reducao de carboidratos, ceia obrigatoria, orientar monitoramento com glicosimetro
+   - Glicose 90-91 mg/dL → Risco: dieta preventiva com controle de carboidratos simples
+   - Glicose < 90 mg/dL → Normal: plano flexivel
+   - Vitamina D < 50 → Orientar suplementacao + alimentos fontes (sardinha, ovos, funghi)
+   - B12 < 600 → Orientar suplementacao (especialmente se vegetariana/vegana)
+   - Ferritina < 70 → Estrategia alimentar com ferro heme + vitamina C + suplemento
+
+2. ESTRUTURA DAS REFEICOES (obrigatoria):
+   - 5 a 7 refeicoes por dia
+   - Intervalo maximo de 3 horas entre refeicoes
+   - PROTEINA OBRIGATORIA EM TODAS AS REFEICOES — nunca so carboidrato
+   - Sem jejum — sem longos periodos sem comer
+   - Se treina cedo: incluir pre-treino antes do exercicio
+   - Se diabetes gestacional: incluir CEIA obrigatoria
+   - Estrutura basica:
+     * Cafe da manha: proteina + carboidrato + fibras
+     * Almoco: proteina + carboidrato + gordura boa + salada + legumes
+     * Lanches: proteina + algo leve (nunca so fruta/carboidrato)
+     * Jantar: completo ou mais leve conforme rotina
+
+3. SINTOMAS — AJUSTES:
+   - Enjoo/nausea: refeicoes menores e mais frequentes, alimentos secos no cafe,
+     evitar odores fortes, gengibre em quantidades seguras
+   - Constipacao: aumentar fibras, agua e movimento
+   - Desejo por doce: proteina + gordura boa nas refeicoes para estabilizar glicemia
+
+4. SUPLEMENTACAO BASE PARA GESTANTES:
+   - Acido folico (verificar se ja usa)
+   - Vitamina D3 (verificar exame)
+   - Omega-3 DHA (seguro e importante para cerebro fetal)
+   - Ferro (conforme necessidade — verificar ferritina)
+   - Calcio (se baixa ingestao de laticinios)
+   - Sempre: "confirme com seu medico antes de iniciar qualquer suplemento"
+
+5. LINGUAGEM E TOM:
+   - Acolhedor, pessoal, cristao
+   - Trate sempre pelo primeiro nome
+   - Palavras de encorajamento, proposito e fe
+   - Nunca tom clinico frio — sempre humanizado
+
+INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automaticamente):
+
+## Titulo principal → roxo com linha separadora
+### Subtitulo → negrito escuro
+- item de lista → bullet normal
++ item positivo → bullet VERDE (coisas para FAZER)
+x item negativo → bullet VERMELHO (coisas para NAO FAZER)
+ATENCAO: texto → alerta vermelho em negrito
+"texto entre aspas" → italico centralizado roxo (para citacoes biblicas)
+--- → quebra de pagina (use entre secoes grandes)
+**palavra** → negrito inline
+
+SECOES OBRIGATORIAS (nesta ordem exata):
+
+## CARTA DE BOAS-VINDAS
+Carta calorosa e personalizada para {nome}. Mencione a situacao especifica dela
+(trimestre, como ela se sente, preocupacoes relatadas). Inclua citacao biblica
+relevante e palavras de encorajamento. 3 a 4 paragrafos.
+
+---
+
+## SOBRE O SEU PLANO
+Explique brevemente o metodo Gestar Bem: clinico, individualizado, pensado so para ela.
+Mencione que os calculos foram feitos especificamente para o seu corpo e momento.
+Mencione o app Fat Secret para registrar refeicoes e a plataforma Kiwify para materiais.
+
+## SEUS CALCULOS PERSONALIZADOS
+Apresente os calculos de forma didatica e humanizada (nao robotica).
+Explique o que e TMB, por que as calorias foram definidas assim, o que cada macro faz.
+Use os valores ja calculados acima — nao invente outros.
+
+## SUPLEMENTACAO RECOMENDADA
+Liste suplementos com marcas sugeridas (ex: Vitamine-se, Max Titanium, Sundown, Puravida).
+Orientacao de horario e forma de uso. Sempre finalizar: "Confirme com seu medico antes de iniciar."
+
+---
+
+## OBJETIVOS DO SEU PLANO
+Lista dos objetivos personalizados para {nome} neste trimestre.
+Seja especifico: nao "emagrecer" mas "controlar o ganho de peso dentro da faixa saudavel para voce".
+
+## INFORMACOES IMPORTANTES ANTES DE COMECAR
+Como pesar alimentos, usar o Fat Secret, horarios ideais, como substituir alimentos.
+Dicas praticas do dia a dia.
+
+---
+
+## PLANO ALIMENTAR COMPLETO
+Para cada refeicao: opcao principal + 2 opcoes de substituicao.
+Inclua porcoes em gramas. Proteina em TODAS as refeicoes.
+Cafe da manha / Lanche da manha / Almoco / Lanche da tarde / Jantar / Ceia (se necessario).
+Adapte conforme horario de fome, rotina e intolerancia alimentar informados.
+
+---
+
+## ORIENTACOES DE EXERCICIOS
+Adapte conforme liberacao medica, trimestre, nivel atual e limitacoes fisicas.
+Se nao liberada: orientacoes de movimento leve (caminhada, alongamento).
+Se liberada: programa semanal com tipo, duracao e frequencia.
+Sempre incluir orientacoes de seguranca para gestantes.
+
+---
+
+## CONSIDERACOES FINAIS
+Encerramento com encorajamento, lembretes dos pontos mais importantes do plano,
+e informacoes de contato da equipe Gestar Bem.
+
+Gere o plano COMPLETO, detalhado e personalizado. Minimo de 1800 palavras.
+Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores."""
+
+    # ── Chamar o Claude ───────────────────────────────────────────────────────
+    client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+
+    log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
+    message = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=8000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    plano_texto = message.content[0].text
+    log.info(f"Plano gerado: {len(plano_texto)} chars")
+
+    # ── Gerar PDF ─────────────────────────────────────────────────────────────
+    pdf_b64  = gerar_pdf_base64(dados, plano_texto)
+    nome_pdf = nome_arquivo_pdf(nome, semanas_gestacao)
+
+    # ── Enviar email ──────────────────────────────────────────────────────────
+    email_enviado = False
+    email_erro    = ''
+
+    if email:
+        try:
+            pdf_bytes = base64.b64decode(pdf_b64)
+            enviar_email_pdf(email, nome, pdf_bytes, nome_pdf)
+            email_enviado = True
+            log.info(f"Email enviado com sucesso para {email}")
+        except Exception as e:
+            email_erro = str(e)
+            log.error(f"Erro ao enviar email: {e}")
+
+    return jsonify({
+        "status":         "ok",
+        "nome":           nome,
+        "email":          email,
+        "email_enviado":  email_enviado,
+        "email_erro":     email_erro,
+        "trimestre":      calculos['trimestre'] if calculos else "?",
+        "calorias_alvo":  calculos['calorias_alvo'] if calculos else 0,
+        "nome_arquivo":   nome_pdf,
+    })
+
+
+# ── Endpoint de teste de email ────────────────────────────────────────────────
+
+@app.route('/testar-email', methods=['POST'])
+def testar_email():
+    """Testa o envio de email sem gerar plano completo."""
+    dados = request.get_json() or {}
+    destinatario = dados.get('email', os.environ.get('GMAIL_USER', ''))
+    nome_teste   = dados.get('nome', 'Teste')
+
+    try:
+        pdf_fake  = b'%PDF-1.4 teste'
+        enviar_email_pdf(destinatario, nome_teste, pdf_fake, 'teste.pdf')
+        return jsonify({"status": "ok", "mensagem": f"Email enviado para {destinatario}"})
+    except Exception as e:
+        return jsonify({"status": "erro", "mensagem": str(e)}), 500
+
+
+@app.route('/')
+def index():
+    return 'API Gestar Bem operando!', 200
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)

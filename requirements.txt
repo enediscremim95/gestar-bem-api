@@ -1,0 +1,4 @@
+flask==3.0.3
+anthropic==0.40.0
+reportlab==4.2.5
+gunicorn==22.0.0
