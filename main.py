@@ -356,7 +356,8 @@ def _processar_em_background(dados):
     email = dados.get('email', '')
     try:
         log.info(f"[BG] Iniciando processamento para {nome}")
-        _gerar_plano_interno(dados)
+        with app.app_context():
+            _gerar_plano_interno(dados)
         log.info(f"[BG] Processamento concluido para {nome}")
     except Exception as e:
         log.error(f"[BG] ERRO para {nome} ({email}): {traceback.format_exc()}")
