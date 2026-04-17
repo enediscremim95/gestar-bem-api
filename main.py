@@ -87,7 +87,7 @@ Equipe Gestar Bem 🌸"""
 
     try:
         with urllib.request.urlopen(req) as resp:
-            log.info(f"Email enviado via SendGrid para {destinatario} com {num_anexos} PDF(s) — status {resp.status}")
+            log.info(f"Email enviado via SendGrid para {destinatario} com {len(anexos)} PDF(s) — status {resp.status}")
     except urllib.error.HTTPError as e:
         corpo_erro = e.read().decode('utf-8', errors='ignore')
         raise Exception(f"SendGrid erro {e.code}: {corpo_erro}")
