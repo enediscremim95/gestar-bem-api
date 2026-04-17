@@ -16,7 +16,7 @@ Fator atividade:
 import os, logging, re, threading, base64, json
 import urllib.request, urllib.error
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, abort
 import anthropic
 from pdf_generator import gerar_pdf_base64, nome_arquivo_pdf
 
@@ -27,8 +27,8 @@ logging.basicConfig(level=logging.INFO)
 
 # ── Funcao de envio de email ─────────────────────────────────────────────────
 
-def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
-    """Envia um ou mais PDFs por email via SendGrid API (HTTP)."""
+def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None):
+    """Envia PDF de nutricao (anexo) + links de treino (corpo) via SendGrid."""
     sg_key    = os.environ.get('SENDGRID_API_KEY', '')
     remetente = 'planosgestarbem@gmail.com'
 
@@ -38,19 +38,21 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
     if not pdfs_lista:
         raise ValueError("Nenhum PDF gerado — email nao sera enviado sem anexo")
 
-    num_anexos = len(pdfs_lista)
-    descricao_anexos = (
-        "o seu Plano de Nutrição completo e o seu Plano de Exercícios"
-        if num_anexos > 1 else
-        "o seu Plano de Nutrição completo"
-    )
+    # Montar bloco de links de treino
+    bloco_treino = ""
+    if links_treino:
+        bloco_treino = "\n\n" + "—" * 40 + "\n📋 SEUS PLANOS DE TREINO\n\n"
+        for url, label in links_treino:
+            bloco_treino += f"▶ {label}:\n{url}\n\n"
+        bloco_treino += "Clique no link acima para abrir o PDF no navegador.\nVocê também pode salvar no seu celular para consultar offline."
 
     corpo = f"""Olá, {nome_paciente}! 💜
 
 Seu plano personalizado do programa Gestar Bem está pronto!
 
-Em anexo você encontra {descricao_anexos}, preparados especialmente para você com muito carinho e cuidado.
+Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.{bloco_treino}
 
+—————————————————————————
 Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.
 
 Com carinho,
@@ -94,6 +96,11 @@ Equipe Gestar Bem 🌸"""
 # ── Selecao do PDF de exercicios ─────────────────────────────────────────────
 
 PDF_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
+
+def _base_url():
+    """URL base do servidor (Railway usa RAILWAY_PUBLIC_DOMAIN)."""
+    dominio = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'web-production-94437.up.railway.app')
+    return f"https://{dominio}"
 
 def selecionar_pdf_limitacao(limitacao, nivel, tri):
     """Seleciona PDF de limitacao com base no tipo de limitacao relatada."""
@@ -198,6 +205,64 @@ def selecionar_pdf_exercicio(dados, trimestre):
             log.warning(f"PDF nao encontrado: {caminho}")
 
     return resultado
+
+
+def selecionar_links_exercicio(dados, trimestre):
+    """
+    Retorna lista de (url, label) para os PDFs de exercicio.
+    Ex: [("https://.../treino/academia/academia_I_iniciante.pdf", "Plano Academia")]
+    """
+    liberado = str(dados.get('liberado_exercicio', '')).lower()
+    if 'nao' in liberado or 'não' in liberado or not liberado.strip():
+        log.info("Paciente nao liberada para exercicios — sem link de treino")
+        return []
+
+    rotina  = str(dados.get('rotina_exercicio', '')).lower()
+    nivel_r = str(dados.get('nivel_exercicio', '')).lower()
+    limit   = str(dados.get('limitacao_exercicio', '')).strip()
+
+    if 'iniciante' in nivel_r or 'leve' in nivel_r:
+        nivel = 'iniciante'
+    elif 'intermediar' in nivel_r or 'moder' in nivel_r:
+        nivel = 'intermediario'
+    elif 'avan' in nivel_r or 'intens' in nivel_r:
+        nivel = 'avancado'
+    else:
+        nivel = 'iniciante'
+
+    tri = trimestre
+    eh_academia = any(p in rotina for p in ('academia', 'muscula', 'gym', 'palestra'))
+    eh_casa     = any(p in rotina for p in ('casa', 'home', 'apartamento'))
+    tem_limit   = bool(limit and limit.lower() not in
+                       ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
+                        'sem limitação', 'nao tenho', 'não tenho', ''))
+
+    base  = _base_url()
+    links = []
+
+    if eh_academia or (not eh_academia and not eh_casa):
+        if tem_limit:
+            full_path = selecionar_pdf_limitacao(limit, nivel, tri)
+            rel = os.path.relpath(full_path, PDF_BASE).replace('\\', '/')
+        else:
+            rel = f"academia/academia_{tri}_{nivel}.pdf"
+
+        caminho_local = os.path.join(PDF_BASE, rel.replace('/', os.sep))
+        if os.path.exists(caminho_local):
+            links.append((f"{base}/treino/{rel}", "Plano de Treinos — Academia"))
+        else:
+            log.warning(f"PDF de treino nao encontrado: {caminho_local}")
+
+    if eh_casa:
+        rel = f"casa/casa_{tri}.pdf"
+        caminho_local = os.path.join(PDF_BASE, rel)
+        if os.path.exists(caminho_local):
+            links.append((f"{base}/treino/{rel}", "Plano de Treinos — Casa"))
+        else:
+            log.warning(f"PDF de treino nao encontrado: {caminho_local}")
+
+    log.info(f"Links de treino selecionados: {[l for _, l in links]}")
+    return links
 
 
 # ── Calculos clinicos (TMB, macros, hidratacao) ──────────────────────────────
@@ -331,6 +396,15 @@ def calcular_dados_clinicos(dados):
 
 
 # ── Endpoint principal ───────────────────────────────────────────────────────
+
+@app.route('/treino/<path:filename>')
+def servir_treino(filename):
+    """Serve os PDFs de treino publicamente via link."""
+    caminho = os.path.abspath(os.path.join(PDF_BASE, filename))
+    if not caminho.startswith(os.path.abspath(PDF_BASE)):
+        abort(403)
+    return send_from_directory(PDF_BASE, filename)
+
 
 @app.route('/gerar-plano', methods=['POST'])
 def gerar_plano():
@@ -661,17 +735,12 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
     nome_pdf     = nome_arquivo_pdf(nome, semanas_gestacao)
     pdf_nutri    = base64.b64decode(pdf_b64)
 
-    # ── Selecionar PDFs de exercicio ─────────────────────────────────────────
-    tri_codigo = calculos['trimestre'] if calculos else 'I'
-    pdfs_exercicio = selecionar_pdf_exercicio(dados, tri_codigo)
+    # ── Selecionar links de treino ────────────────────────────────────────────
+    tri_codigo   = calculos['trimestre'] if calculos else 'I'
+    links_treino = selecionar_links_exercicio(dados, tri_codigo)
 
-    # ── Montar lista de PDFs para o email ────────────────────────────────────
-    # PDFs de exercicio (8-12MB) sao grandes demais para anexo de email.
-    # Por enquanto, enviar apenas o PDF de nutricao. No futuro: link Google Drive.
+    # ── Montar lista de PDFs para o email (apenas nutricao como anexo) ────────
     pdfs_email = [(pdf_nutri, nome_pdf)]
-    if pdfs_exercicio:
-        log.info(f"PDFs de exercicio selecionados mas nao anexados (muito grandes para email): "
-                 f"{[c for _, c in pdfs_exercicio]}")
 
     # ── Enviar email ──────────────────────────────────────────────────────────
     email_enviado = False
@@ -679,9 +748,9 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
 
     if email:
         try:
-            enviar_email_pdf(email, nome, pdfs_email)
+            enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
             email_enviado = True
-            log.info(f"Email enviado com sucesso para {email} ({len(pdfs_email)} PDFs)")
+            log.info(f"Email enviado para {email} — PDF nutricao + {len(links_treino)} link(s) de treino")
         except Exception as e:
             email_erro = str(e)
             log.error(f"Erro ao enviar email: {e}")
