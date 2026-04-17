@@ -14,7 +14,7 @@ Fator atividade:
 """
 
 import os, logging, re, threading, base64, json
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 
 from flask import Flask, request, jsonify, send_from_directory, abort
 import anthropic
@@ -105,6 +105,21 @@ def _base_url():
     dominio = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'web-production-94437.up.railway.app')
     return f"https://{dominio}"
 
+
+def encurtar_url(url):
+    """Encurta URL via TinyURL. Retorna URL original se falhar."""
+    try:
+        api = f"https://tinyurl.com/api-create.php?url={urllib.parse.quote(url, safe='')}"
+        req = urllib.request.Request(api, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            curta = resp.read().decode('utf-8').strip()
+            if curta.startswith('http'):
+                log.info(f"URL encurtada: {curta}")
+                return curta
+    except Exception as e:
+        log.warning(f"TinyURL falhou, usando URL original: {e}")
+    return url
+
 def selecionar_pdf_limitacao(limitacao, nivel, tri):
     """Seleciona PDF de limitacao com base no tipo de limitacao relatada."""
     lim = limitacao.lower()
@@ -192,7 +207,7 @@ def selecionar_links_exercicio(dados, trimestre):
 
         caminho_local = os.path.join(PDF_BASE, rel.replace('/', os.sep))
         if os.path.exists(caminho_local):
-            links.append((f"{base}/treino/{rel}", "Plano de Treinos — Academia"))
+            links.append((encurtar_url(f"{base}/treino/{rel}"), "Plano de Treinos — Academia"))
         else:
             log.warning(f"PDF de treino nao encontrado: {caminho_local}")
 
@@ -200,7 +215,7 @@ def selecionar_links_exercicio(dados, trimestre):
         rel = f"casa/casa_{tri}.pdf"
         caminho_local = os.path.join(PDF_BASE, rel)
         if os.path.exists(caminho_local):
-            links.append((f"{base}/treino/{rel}", "Plano de Treinos — Casa"))
+            links.append((encurtar_url(f"{base}/treino/{rel}"), "Plano de Treinos — Casa"))
         else:
             log.warning(f"PDF de treino nao encontrado: {caminho_local}")
 
