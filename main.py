@@ -29,8 +29,19 @@ app = Flask(__name__)
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Cliente Anthropic — criado uma vez na inicializacao do servidor
+# timeout=120s: se o Claude nao responder em 2 min, a thread nao fica pendurada para sempre
+_anthropic_client = anthropic.Anthropic(
+    api_key=os.environ.get('ANTHROPIC_API_KEY'),
+    timeout=120.0
+)
+
 # Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
-DELAY_HORAS = float(os.environ.get('DELAY_HORAS', '0.083'))
+try:
+    DELAY_HORAS = float(os.environ.get('DELAY_HORAS', '0.083'))
+except (ValueError, TypeError):
+    log.warning("DELAY_HORAS invalido no ambiente — usando 0.083 (5 minutos)")
+    DELAY_HORAS = 0.083
 
 
 # ── Banco de dados ────────────────────────────────────────────────────────────
@@ -47,6 +58,7 @@ def get_db():
 
 def init_db():
     """Cria tabela de fila se nao existir."""
+    conn = None
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -63,14 +75,17 @@ def init_db():
         """)
         conn.commit()
         cur.close()
-        conn.close()
         log.info("Banco inicializado com sucesso")
     except Exception as e:
         log.error(f"Erro ao inicializar banco: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def verificar_fila():
     """Verifica fila e processa planos agendados cujo horario chegou."""
+    conn = None
     try:
         conn = get_db()
         cur  = conn.cursor()
@@ -83,46 +98,54 @@ def verificar_fila():
         """)
         jobs = cur.fetchall()
         cur.close()
-        conn.close()
-
-        for job_id, dados in jobs:
-            nome = dados.get('nome', '?')
-            log.info(f"[FILA] Processando job {job_id} — {nome}")
-            try:
-                with app.app_context():
-                    _gerar_plano_interno(dados)
-
-                conn2 = get_db()
-                cur2  = conn2.cursor()
-                cur2.execute("""
-                    UPDATE planos_agendados
-                    SET processado = TRUE, processado_em = NOW()
-                    WHERE id = %s
-                """, (job_id,))
-                conn2.commit()
-                cur2.close()
-                conn2.close()
-                log.info(f"[FILA] Job {job_id} concluido")
-
-            except Exception as e:
-                log.error(f"[FILA] Erro no job {job_id}: {traceback.format_exc()}")
-                try:
-                    conn3 = get_db()
-                    cur3  = conn3.cursor()
-                    # processado=TRUE para nao ficar em loop eterno de reprocessamento
-                    cur3.execute("""
-                        UPDATE planos_agendados
-                        SET processado = TRUE, erro = %s, processado_em = NOW()
-                        WHERE id = %s
-                    """, (str(e)[:500], job_id))
-                    conn3.commit()
-                    cur3.close()
-                    conn3.close()
-                except Exception:
-                    pass
-
     except Exception as e:
         log.error(f"[FILA] Erro ao verificar fila: {e}")
+        return
+    finally:
+        if conn:
+            conn.close()
+
+    for job_id, dados in jobs:
+        nome = dados.get('nome', '?')
+        log.info(f"[FILA] Processando job {job_id} — {nome}")
+        conn2 = None
+        try:
+            with app.app_context():
+                _gerar_plano_interno(dados)
+
+            conn2 = get_db()
+            cur2  = conn2.cursor()
+            cur2.execute("""
+                UPDATE planos_agendados
+                SET processado = TRUE, processado_em = NOW()
+                WHERE id = %s
+            """, (job_id,))
+            conn2.commit()
+            cur2.close()
+            log.info(f"[FILA] Job {job_id} concluido")
+
+        except Exception as e:
+            log.error(f"[FILA] Erro no job {job_id}: {traceback.format_exc()}")
+            conn3 = None
+            try:
+                conn3 = get_db()
+                cur3  = conn3.cursor()
+                # processado=TRUE para nao ficar em loop eterno de reprocessamento
+                cur3.execute("""
+                    UPDATE planos_agendados
+                    SET processado = TRUE, erro = %s, processado_em = NOW()
+                    WHERE id = %s
+                """, (str(e)[:500], job_id))
+                conn3.commit()
+                cur3.close()
+            except Exception:
+                pass
+            finally:
+                if conn3:
+                    conn3.close()
+        finally:
+            if conn2:
+                conn2.close()
 
 
 # Inicializar banco e agendador ao subir o servidor
@@ -252,13 +275,9 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
         return os.path.join(PDF_BASE, 'limitacao', 'sem_agachamento_avancado.pdf')
 
     if 'leg' in lim and ('eleva' in lim or 'ombro' in lim):
-        if tri == 'III':
-            arq = ('sem_leg_elevacao_intermediario_III.pdf'
-                   if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
-        else:
-            # Tri I e II: usar versao sem trimestre especifico
-            arq = ('sem_leg_elevacao_intermediario_III.pdf'
-                   if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
+        # Apenas versao _III disponivel para esta combinacao (todos os trimestres usam o mesmo arquivo)
+        arq = ('sem_leg_elevacao_intermediario_III.pdf'
+               if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
         return os.path.join(PDF_BASE, 'limitacao', arq)
 
     if 'leg' in lim and tri == 'III':
@@ -487,6 +506,7 @@ def gerar_plano():
     agendado_para = datetime.now() + timedelta(hours=DELAY_HORAS)
     minutos       = round(DELAY_HORAS * 60)
 
+    conn = None
     try:
         conn = get_db()
         cur  = conn.cursor()
@@ -496,7 +516,6 @@ def gerar_plano():
         """, (PgJson(dados), agendado_para))
         conn.commit()
         cur.close()
-        conn.close()
         log.info(f"Plano de {nome} agendado para {agendado_para.strftime('%d/%m/%Y %H:%M')}")
         return jsonify({
             "status":   "agendado",
@@ -517,6 +536,10 @@ def gerar_plano():
             "email":    email,
         })
 
+    finally:
+        if conn:
+            conn.close()
+
 
 def _processar_em_background(dados):
     """Executa todo o processamento (Claude + PDF + email) em thread separada."""
@@ -533,9 +556,15 @@ def _processar_em_background(dados):
 
 def _gerar_plano_interno(dados):
 
+    # Validar email ANTES de qualquer processamento caro (Claude + PDF)
+    email = dados.get('email', '').strip()
+    if not email:
+        log.warning(f"[INTERNO] Email vazio para '{dados.get('nome', 'Paciente')}' — abortando sem chamar Claude")
+        return
+
     # Extrair campos do formulario
     nome               = dados.get('nome', 'Paciente')
-    email              = dados.get('email', '')
+    # email ja extraido e validado acima
     pais               = dados.get('pais', 'Brasil')
     idade              = dados.get('idade', '')
     altura             = dados.get('altura', '')
@@ -816,10 +845,8 @@ Gere o plano COMPLETO, detalhado e personalizado. Minimo de 1800 palavras.
 Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores."""
 
     # ── Chamar o Claude ───────────────────────────────────────────────────────
-    client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-
     log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
-    message = client.messages.create(
+    message = _anthropic_client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=8000,
         messages=[{"role": "user", "content": prompt}]
@@ -839,17 +866,17 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
     pdfs_email = [(pdf_nutri, nome_pdf)]
 
     # ── Enviar email ──────────────────────────────────────────────────────────
+    # email ja validado no inicio da funcao — sempre presente aqui
     email_enviado = False
     email_erro    = ''
 
-    if email:
-        try:
-            enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
-            email_enviado = True
-            log.info(f"Email enviado para {email} — PDF nutricao + {len(links_treino)} link(s) de treino")
-        except Exception as e:
-            email_erro = str(e)
-            log.error(f"Erro ao enviar email: {e}")
+    try:
+        enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
+        email_enviado = True
+        log.info(f"Email enviado para {email} — PDF nutricao + {len(links_treino)} link(s) de treino")
+    except Exception as e:
+        email_erro = str(e)
+        log.error(f"Erro ao enviar email: {e}")
 
     log.info(f"[BG] Concluido para {nome} — email_enviado={email_enviado} erro='{email_erro}'")
 
