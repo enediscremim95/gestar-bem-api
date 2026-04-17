@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, smtplib, ssl, logging, re
+import os, smtplib, ssl, logging, re, threading
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -331,16 +331,38 @@ def calcular_dados_clinicos(dados):
 
 @app.route('/gerar-plano', methods=['POST'])
 def gerar_plano():
+    """Recebe os dados, responde imediatamente e processa em segundo plano."""
+    dados = request.get_json(force=True) or {}
+    nome  = dados.get('nome', 'Paciente')
+    email = dados.get('email', '')
+
+    thread = threading.Thread(target=_processar_em_background, args=(dados,))
+    thread.daemon = True
+    thread.start()
+
+    log.info(f"Requisicao aceita para {nome} ({email}) — processando em background")
+    return jsonify({
+        "status":    "aceito",
+        "mensagem":  f"Plano de {nome} sendo gerado. Email sera enviado para {email} em alguns minutos.",
+        "nome":      nome,
+        "email":     email,
+    })
+
+
+def _processar_em_background(dados):
+    """Executa todo o processamento (Claude + PDF + email) em thread separada."""
     import traceback
+    nome  = dados.get('nome', 'Paciente')
+    email = dados.get('email', '')
     try:
-        return _gerar_plano_interno()
+        log.info(f"[BG] Iniciando processamento para {nome}")
+        _gerar_plano_interno(dados)
+        log.info(f"[BG] Processamento concluido para {nome}")
     except Exception as e:
-        log.error(f"ERRO CRITICO: {traceback.format_exc()}")
-        return jsonify({"erro": str(e), "detalhe": traceback.format_exc()}), 500
+        log.error(f"[BG] ERRO para {nome} ({email}): {traceback.format_exc()}")
 
 
-def _gerar_plano_interno():
-    dados = request.get_json(force=True)
+def _gerar_plano_interno(dados):
 
     # Extrair campos do formulario
     nome               = dados.get('nome', 'Paciente')
