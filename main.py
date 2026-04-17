@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, logging, re, threading, base64, json
+import os, logging, re, threading, base64, json, traceback, atexit
 import urllib.request, urllib.error, urllib.parse
 from datetime import datetime, timedelta
 
@@ -41,7 +41,7 @@ def get_db():
     if not url:
         raise ValueError("DATABASE_URL nao configurado")
     if 'sslmode' not in url:
-        url += '?sslmode=require'
+        url += ('&' if '?' in url else '?') + 'sslmode=require'
     return psycopg2.connect(url)
 
 
@@ -105,7 +105,6 @@ def verificar_fila():
                 log.info(f"[FILA] Job {job_id} concluido")
 
             except Exception as e:
-                import traceback
                 log.error(f"[FILA] Erro no job {job_id}: {traceback.format_exc()}")
                 try:
                     conn3 = get_db()
@@ -131,7 +130,6 @@ init_db()
 _scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
 _scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila', max_instances=1)
 _scheduler.start()
-import atexit
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 
 
@@ -203,7 +201,9 @@ Equipe Gestar Bem 🌸"""
             log.info(f"Email enviado via SendGrid para {destinatario} com {len(anexos)} PDF(s) — status {resp.status}")
     except urllib.error.HTTPError as e:
         corpo_erro = e.read().decode('utf-8', errors='ignore')
-        raise Exception(f"SendGrid erro {e.code}: {corpo_erro}")
+        raise Exception(f"SendGrid erro HTTP {e.code}: {corpo_erro}")
+    except urllib.error.URLError as e:
+        raise Exception(f"SendGrid erro de rede: {e.reason}")
 
 
 # ── Selecao do PDF de exercicios ─────────────────────────────────────────────
@@ -520,7 +520,6 @@ def gerar_plano():
 
 def _processar_em_background(dados):
     """Executa todo o processamento (Claude + PDF + email) em thread separada."""
-    import traceback
     nome  = dados.get('nome', 'Paciente')
     email = dados.get('email', '')
     try:
@@ -834,8 +833,7 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
     pdf_nutri    = base64.b64decode(pdf_b64)
 
     # ── Selecionar links de treino ────────────────────────────────────────────
-    tri_codigo   = calculos['trimestre'] if calculos else 'I'
-    links_treino = selecionar_links_exercicio(dados, tri_codigo)
+    links_treino = selecionar_links_exercicio(dados, trimestre_codigo)
 
     # ── Montar lista de PDFs para o email (apenas nutricao como anexo) ────────
     pdfs_email = [(pdf_nutri, nome_pdf)]
