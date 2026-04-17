@@ -13,10 +13,11 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, smtplib, ssl, logging
+import os, smtplib, ssl, logging, re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
+from email.header import Header
 from email import encoders
 import base64
 
@@ -40,10 +41,16 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
     remetente = os.environ.get('GMAIL_USER', '')
     senha     = os.environ.get('GMAIL_APP_PASSWORD', '')
 
+    if not remetente or not senha:
+        raise ValueError("Variaveis GMAIL_USER e GMAIL_APP_PASSWORD nao configuradas no ambiente")
+
+    if not pdfs_lista:
+        raise ValueError("Nenhum PDF gerado — email nao sera enviado sem anexo")
+
     msg = MIMEMultipart()
     msg['From']    = remetente
     msg['To']      = destinatario
-    msg['Subject'] = f'Seu Plano Personalizado — Gestar Bem 💜'
+    msg['Subject'] = Header('Seu Plano Personalizado — Gestar Bem 💜', 'utf-8')
 
     num_anexos = len(pdfs_lista)
     descricao_anexos = (
@@ -192,6 +199,15 @@ def selecionar_pdf_exercicio(dados, trimestre):
 
 # ── Calculos clinicos (TMB, macros, hidratacao) ──────────────────────────────
 
+def _extrair_numero(valor, inteiro=False):
+    """Extrai o primeiro numero de uma string. Lança ValueError se não encontrar."""
+    match = re.search(r'\d+(?:[,\.]\d+)?', str(valor or ''))
+    if not match:
+        raise ValueError(f"Nao foi possivel extrair numero de: {repr(valor)}")
+    numero = float(match.group().replace(',', '.'))
+    return int(numero) if inteiro else numero
+
+
 def calcular_dados_clinicos(dados):
     """
     Calcula TMB (Mifflin-St Jeor), manutencao, calorias alvo,
@@ -199,12 +215,30 @@ def calcular_dados_clinicos(dados):
     Retorna dict com todos os valores ou None se nao for possivel calcular.
     """
     try:
-        peso   = float(str(dados.get('peso_atual', '')).replace(',', '.'))
-        alt    = float(str(dados.get('altura', '')).replace(',', '.'))
-        idade  = float(str(dados.get('idade', '')).replace(',', '.'))
-        semanas = int(str(dados.get('semanas_gestacao', '0')).replace(',', '.').split('.')[0])
+        # Validar campos obrigatorios antes de calcular
+        for campo in ['peso_atual', 'altura', 'idade', 'semanas_gestacao']:
+            if not dados.get(campo):
+                log.warning(f"Campo obrigatorio ausente ou vazio: {campo}")
+                return None
+
+        peso    = _extrair_numero(dados.get('peso_atual'))
+        alt     = _extrair_numero(dados.get('altura'))
+        idade   = _extrair_numero(dados.get('idade'))
+        semanas = _extrair_numero(dados.get('semanas_gestacao'), inteiro=True)
         nivel   = str(dados.get('nivel_exercicio', '')).lower()
-        glicose = str(dados.get('exames_glicose', dados.get('exames_anexo', '')))
+
+        # Normalizar altura: se vier em metros (ex: 1.65), converter para cm
+        if alt < 3:
+            log.warning(f"Altura parece estar em metros ({alt}m) — convertendo para cm ({alt*100}cm)")
+            alt = alt * 100
+
+        # Validar ranges razoaveis
+        if not (30 <= peso <= 200):
+            log.warning(f"Peso fora do range esperado: {peso}kg")
+        if not (140 <= alt <= 220):
+            log.warning(f"Altura fora do range esperado: {alt}cm")
+        if not (1 <= semanas <= 42):
+            log.warning(f"Semanas fora do range esperado: {semanas}")
 
         # Trimestre
         if semanas <= 13:
@@ -230,6 +264,7 @@ def calcular_dados_clinicos(dados):
         elif 'avan' in nivel or 'intens' in nivel:
             fator = 1.725; fator_nome = "Muito ativa (x1,725)"
         else:
+            log.warning(f"nivel_exercicio nao reconhecido: '{nivel}' — usando fallback 1.375")
             fator = 1.375; fator_nome = "Levemente ativa (x1,375)"
 
         manutencao = tmb * fator
@@ -286,7 +321,9 @@ def calcular_dados_clinicos(dados):
         }
 
     except Exception as e:
-        log.warning(f"Nao foi possivel calcular dados clinicos: {e}")
+        log.warning(f"Nao foi possivel calcular dados clinicos: {e} | "
+                    f"peso={dados.get('peso_atual')} alt={dados.get('altura')} "
+                    f"idade={dados.get('idade')} semanas={dados.get('semanas_gestacao')}")
         return None
 
 
