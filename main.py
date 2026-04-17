@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
     """Envia um ou mais PDFs por email via SendGrid API (HTTP)."""
     sg_key    = os.environ.get('SENDGRID_API_KEY', '')
-    remetente = os.environ.get('GMAIL_USER', 'planosgestarbem@gmail.com')
+    remetente = 'planosgestarbem@gmail.com'
 
     if not sg_key:
         raise ValueError("SENDGRID_API_KEY nao configurado no ambiente")
