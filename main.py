@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO)
 # timeout=120s: se o Claude nao responder em 2 min, a thread nao fica pendurada para sempre
 _anthropic_client = anthropic.Anthropic(
     api_key=os.environ.get('ANTHROPIC_API_KEY'),
-    timeout=240.0
+    timeout=300.0
 )
 
 # Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
