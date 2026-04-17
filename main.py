@@ -15,6 +15,11 @@ Fator atividade:
 
 import os, logging, re, threading, base64, json
 import urllib.request, urllib.error, urllib.parse
+from datetime import datetime, timedelta
+
+import psycopg2
+from psycopg2.extras import Json as PgJson
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from flask import Flask, request, jsonify, send_from_directory, abort
 import anthropic
@@ -23,6 +28,110 @@ from pdf_generator import gerar_pdf_base64, nome_arquivo_pdf
 app = Flask(__name__)
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
+DELAY_HORAS = float(os.environ.get('DELAY_HORAS', '0.083'))
+
+
+# ── Banco de dados ────────────────────────────────────────────────────────────
+
+def get_db():
+    """Retorna conexão com PostgreSQL."""
+    url = os.environ.get('DATABASE_URL', '')
+    if not url:
+        raise ValueError("DATABASE_URL nao configurado")
+    if 'sslmode' not in url:
+        url += '?sslmode=require'
+    return psycopg2.connect(url)
+
+
+def init_db():
+    """Cria tabela de fila se nao existir."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS planos_agendados (
+                id            SERIAL PRIMARY KEY,
+                dados         JSONB        NOT NULL,
+                agendado_para TIMESTAMP    NOT NULL,
+                processado    BOOLEAN      DEFAULT FALSE,
+                criado_em     TIMESTAMP    DEFAULT NOW(),
+                processado_em TIMESTAMP,
+                erro          TEXT
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        log.info("Banco inicializado com sucesso")
+    except Exception as e:
+        log.error(f"Erro ao inicializar banco: {e}")
+
+
+def verificar_fila():
+    """Verifica fila e processa planos agendados cujo horario chegou."""
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT id, dados FROM planos_agendados
+            WHERE processado = FALSE AND agendado_para <= NOW()
+            ORDER BY agendado_para
+            LIMIT 5
+            FOR UPDATE SKIP LOCKED
+        """)
+        jobs = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        for job_id, dados in jobs:
+            nome = dados.get('nome', '?')
+            log.info(f"[FILA] Processando job {job_id} — {nome}")
+            try:
+                with app.app_context():
+                    _gerar_plano_interno(dados)
+
+                conn2 = get_db()
+                cur2  = conn2.cursor()
+                cur2.execute("""
+                    UPDATE planos_agendados
+                    SET processado = TRUE, processado_em = NOW()
+                    WHERE id = %s
+                """, (job_id,))
+                conn2.commit()
+                cur2.close()
+                conn2.close()
+                log.info(f"[FILA] Job {job_id} concluido")
+
+            except Exception as e:
+                import traceback
+                log.error(f"[FILA] Erro no job {job_id}: {traceback.format_exc()}")
+                try:
+                    conn3 = get_db()
+                    cur3  = conn3.cursor()
+                    cur3.execute("""
+                        UPDATE planos_agendados
+                        SET erro = %s, processado_em = NOW()
+                        WHERE id = %s
+                    """, (str(e)[:500], job_id))
+                    conn3.commit()
+                    cur3.close()
+                    conn3.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        log.error(f"[FILA] Erro ao verificar fila: {e}")
+
+
+# Inicializar banco e agendador ao subir o servidor
+init_db()
+_scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
+_scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila')
+_scheduler.start()
+import atexit
+atexit.register(lambda: _scheduler.shutdown(wait=False))
 
 
 # ── Funcao de envio de email ─────────────────────────────────────────────────
@@ -366,22 +475,42 @@ def servir_treino(filename):
 
 @app.route('/gerar-plano', methods=['POST'])
 def gerar_plano():
-    """Recebe os dados, responde imediatamente e processa em segundo plano."""
-    dados = request.get_json(force=True) or {}
-    nome  = dados.get('nome', 'Paciente')
-    email = dados.get('email', '')
+    """Recebe os dados e agenda o plano no banco de dados."""
+    dados         = request.get_json(force=True) or {}
+    nome          = dados.get('nome', 'Paciente')
+    email         = dados.get('email', '')
+    agendado_para = datetime.now() + timedelta(hours=DELAY_HORAS)
+    minutos       = round(DELAY_HORAS * 60)
 
-    thread = threading.Thread(target=_processar_em_background, args=(dados,))
-    thread.daemon = True
-    thread.start()
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO planos_agendados (dados, agendado_para)
+            VALUES (%s, %s)
+        """, (PgJson(dados), agendado_para))
+        conn.commit()
+        cur.close()
+        conn.close()
+        log.info(f"Plano de {nome} agendado para {agendado_para.strftime('%d/%m/%Y %H:%M')}")
+        return jsonify({
+            "status":   "agendado",
+            "mensagem": f"Plano de {nome} agendado. Email sera enviado em {minutos} minuto(s).",
+            "nome":     nome,
+            "email":    email,
+        })
 
-    log.info(f"Requisicao aceita para {nome} ({email}) — processando em background")
-    return jsonify({
-        "status":    "aceito",
-        "mensagem":  f"Plano de {nome} sendo gerado. Email sera enviado para {email} em alguns minutos.",
-        "nome":      nome,
-        "email":     email,
-    })
+    except Exception as e:
+        log.error(f"Erro ao agendar no banco — processando direto: {e}")
+        thread = threading.Thread(target=_processar_em_background, args=(dados,))
+        thread.daemon = True
+        thread.start()
+        return jsonify({
+            "status":   "aceito",
+            "mensagem": f"Plano de {nome} sendo gerado (modo direto).",
+            "nome":     nome,
+            "email":    email,
+        })
 
 
 def _processar_em_background(dados):
