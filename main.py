@@ -110,9 +110,10 @@ def verificar_fila():
                 try:
                     conn3 = get_db()
                     cur3  = conn3.cursor()
+                    # processado=TRUE para nao ficar em loop eterno de reprocessamento
                     cur3.execute("""
                         UPDATE planos_agendados
-                        SET erro = %s, processado_em = NOW()
+                        SET processado = TRUE, erro = %s, processado_em = NOW()
                         WHERE id = %s
                     """, (str(e)[:500], job_id))
                     conn3.commit()
@@ -254,7 +255,11 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
         if tri == 'III':
             arq = ('sem_leg_elevacao_intermediario_III.pdf'
                    if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
-            return os.path.join(PDF_BASE, 'limitacao', arq)
+        else:
+            # Tri I e II: usar versao sem trimestre especifico
+            arq = ('sem_leg_elevacao_intermediario_III.pdf'
+                   if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
+        return os.path.join(PDF_BASE, 'limitacao', arq)
 
     if 'leg' in lim and tri == 'III':
         return os.path.join(PDF_BASE, 'limitacao', 'sem_leg_elevacao_iniciante_III.pdf')
@@ -583,7 +588,15 @@ Use sua experiencia clinica para estimar calorias e macros com base nos dados fo
 Padrao: 35% proteina / 40% carboidrato / 25% gordura."""
 
     # ── Bloco de contexto do trimestre ──────────────────────────────────────────
-    trimestre_codigo = calculos['trimestre'] if calculos else 'I'
+    if calculos:
+        trimestre_codigo = calculos['trimestre']
+    else:
+        # calculos falhou — extrair trimestre direto das semanas para nao errar o PDF de treino
+        try:
+            _s = _extrair_numero(dados.get('semanas_gestacao', '1'), inteiro=True)
+            trimestre_codigo = 'III' if _s > 26 else ('II' if _s > 13 else 'I')
+        except Exception:
+            trimestre_codigo = 'I'
 
     if trimestre_codigo == 'I':
         contexto_trimestre = """CONTEXTO DO 1o TRIMESTRE (semanas 1 a 13):
