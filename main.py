@@ -665,8 +665,13 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
     tri_codigo = calculos['trimestre'] if calculos else 'I'
     pdfs_exercicio = selecionar_pdf_exercicio(dados, tri_codigo)
 
-    # ── Montar lista completa de PDFs para o email ────────────────────────────
-    pdfs_email = [(pdf_nutri, nome_pdf)] + pdfs_exercicio
+    # ── Montar lista de PDFs para o email ────────────────────────────────────
+    # PDFs de exercicio (8-12MB) sao grandes demais para anexo de email.
+    # Por enquanto, enviar apenas o PDF de nutricao. No futuro: link Google Drive.
+    pdfs_email = [(pdf_nutri, nome_pdf)]
+    if pdfs_exercicio:
+        log.info(f"PDFs de exercicio selecionados mas nao anexados (muito grandes para email): "
+                 f"{[c for _, c in pdfs_exercicio]}")
 
     # ── Enviar email ──────────────────────────────────────────────────────────
     email_enviado = False
