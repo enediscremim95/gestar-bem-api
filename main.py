@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-main.py — Replit Flask API — Gestar Bem
+main.py — Railway Flask API — Gestar Bem
 Recebe dados do formulario via Apps Script, calcula TMB/macros,
 gera plano com Claude, converte em PDF e envia por email.
 
@@ -128,7 +128,7 @@ def verificar_fila():
 # Inicializar banco e agendador ao subir o servidor
 init_db()
 _scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
-_scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila')
+_scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila', max_instances=1)
 _scheduler.start()
 import atexit
 atexit.register(lambda: _scheduler.shutdown(wait=False))
@@ -532,8 +532,6 @@ def _gerar_plano_interno(dados):
     # Extrair campos do formulario
     nome               = dados.get('nome', 'Paciente')
     email              = dados.get('email', '')
-    whatsapp           = dados.get('whatsapp', '')
-    instagram          = dados.get('instagram', '')
     pais               = dados.get('pais', 'Brasil')
     idade              = dados.get('idade', '')
     altura             = dados.get('altura', '')
@@ -851,8 +849,11 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
 def testar_email():
     """Testa o envio de email sem gerar plano completo."""
     dados = request.get_json() or {}
-    destinatario = dados.get('email', os.environ.get('GMAIL_USER', ''))
+    destinatario = dados.get('email', '').strip()
     nome_teste   = dados.get('nome', 'Teste')
+
+    if not destinatario:
+        return jsonify({"status": "erro", "mensagem": "Campo 'email' obrigatorio"}), 400
 
     try:
         pdf_fake = b'%PDF-1.4 teste'
