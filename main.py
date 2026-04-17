@@ -13,13 +13,8 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, smtplib, ssl, logging, re, threading
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email.header import Header
-from email import encoders
-import base64
+import os, logging, re, threading, base64, json
+import urllib.request, urllib.error
 
 from flask import Flask, request, jsonify
 import anthropic
@@ -33,24 +28,15 @@ logging.basicConfig(level=logging.INFO)
 # ── Funcao de envio de email ─────────────────────────────────────────────────
 
 def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
-    """Envia um ou mais PDFs por email via Gmail SMTP SSL (porta 465).
+    """Envia um ou mais PDFs por email via SendGrid API (HTTP)."""
+    sg_key    = os.environ.get('SENDGRID_API_KEY', '')
+    remetente = os.environ.get('GMAIL_USER', 'planosgestarbem@gmail.com')
 
-    Args:
-        pdfs_lista: lista de tuples (pdf_bytes, nome_arquivo)
-    """
-    remetente = os.environ.get('GMAIL_USER', '')
-    senha     = os.environ.get('GMAIL_APP_PASSWORD', '')
-
-    if not remetente or not senha:
-        raise ValueError("Variaveis GMAIL_USER e GMAIL_APP_PASSWORD nao configuradas no ambiente")
+    if not sg_key:
+        raise ValueError("SENDGRID_API_KEY nao configurado no ambiente")
 
     if not pdfs_lista:
         raise ValueError("Nenhum PDF gerado — email nao sera enviado sem anexo")
-
-    msg = MIMEMultipart()
-    msg['From']    = remetente
-    msg['To']      = destinatario
-    msg['Subject'] = Header('Seu Plano Personalizado — Gestar Bem 💜', 'utf-8')
 
     num_anexos = len(pdfs_lista)
     descricao_anexos = (
@@ -70,22 +56,39 @@ Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equ
 Com carinho,
 Equipe Gestar Bem 🌸"""
 
-    msg.attach(MIMEText(corpo, 'plain', 'utf-8'))
-
+    anexos = []
     for pdf_bytes, nome_arquivo in pdfs_lista:
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(pdf_bytes)
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename="{nome_arquivo}"')
-        msg.attach(part)
+        anexos.append({
+            "content":     base64.b64encode(pdf_bytes).decode(),
+            "filename":    nome_arquivo,
+            "type":        "application/pdf",
+            "disposition": "attachment"
+        })
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP('smtp.gmail.com', 587) as server:
-        server.ehlo()
-        server.starttls(context=context)
-        server.login(remetente, senha)
-        server.sendmail(remetente, destinatario, msg.as_string())
-    log.info(f"Email enviado para {destinatario} com {num_anexos} PDF(s)")
+    payload = {
+        "personalizations": [{"to": [{"email": destinatario}]}],
+        "from":    {"email": remetente, "name": "Gestar Bem"},
+        "subject": "Seu Plano Personalizado — Gestar Bem",
+        "content": [{"type": "text/plain", "value": corpo}],
+        "attachments": anexos
+    }
+
+    req = urllib.request.Request(
+        "https://api.sendgrid.com/v3/mail/send",
+        data=json.dumps(payload).encode('utf-8'),
+        headers={
+            "Authorization": f"Bearer {sg_key}",
+            "Content-Type":  "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            log.info(f"Email enviado via SendGrid para {destinatario} com {num_anexos} PDF(s) — status {resp.status}")
+    except urllib.error.HTTPError as e:
+        corpo_erro = e.read().decode('utf-8', errors='ignore')
+        raise Exception(f"SendGrid erro {e.code}: {corpo_erro}")
 
 
 # ── Selecao do PDF de exercicios ─────────────────────────────────────────────
