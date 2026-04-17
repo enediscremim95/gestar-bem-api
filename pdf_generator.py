@@ -293,7 +293,7 @@ def render_texto_claude(texto, estilos):
         # Bullet verde (FAZER): + item
         if linha_strip.startswith('+ '):
             conteudo = apply_inline_markup(linha_strip[2:].strip())
-            elements.append(Paragraph(f'OK  {conteudo}', estilos['bullet_verde']))
+            elements.append(Paragraph(f'✓  {conteudo}', estilos['bullet_verde']))
             elements.append(sp(2))
             continue
 

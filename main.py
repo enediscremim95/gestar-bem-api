@@ -228,6 +228,69 @@ CALCULOS CLINICOS: Nao foi possivel calcular automaticamente.
 Use sua experiencia clinica para estimar calorias e macros com base nos dados fornecidos.
 Padrao: 35% proteina / 40% carboidrato / 25% gordura."""
 
+    # ── Bloco de contexto do trimestre ──────────────────────────────────────────
+    trimestre_codigo = calculos['trimestre'] if calculos else 'I'
+
+    if trimestre_codigo == 'I':
+        contexto_trimestre = """CONTEXTO DO 1o TRIMESTRE (semanas 1 a 13):
+Este e um periodo de grandes adaptacoes hormonais. E muito comum:
+- Enjoos e nauseas (principalmente pela manha ou ao longo do dia)
+- Aversao a certos alimentos e odores
+- Fadiga intensa
+- Constipacao intestinal
+- Alteracoes de humor
+
+CONDUTAS ESPECIFICAS PARA O 1o TRIMESTRE:
+- Refeicoes MENORES e mais frequentes para minimizar enjoos
+- Alimentos secos no cafe da manha (torrada integral, biscoito de agua)
+- Gengibre em quantidades moderadas pode ajudar com nauseas
+- Evitar alimentos de odor forte (frituras, ovos mexidos muito cozidos)
+- Hidratacao fracionada (pequenos goles ao longo do dia)
+- Acido folico E ESSENCIAL neste periodo — verificar se esta em uso
+- Estrategia calorica: MANUTENCAO DE PESO (nao e momento de ganhar muito)
+- Se houve perda de peso por enjoos: priorizar alimentos tolerados e nutritivos
+- Tom da carta: acolher a vulnerabilidade e inseguranca do inicio da gestacao"""
+
+    elif trimestre_codigo == 'II':
+        contexto_trimestre = """CONTEXTO DO 2o TRIMESTRE (semanas 14 a 26):
+E o trimestre do "renascimento" — os enjoos costumam diminuir,
+a energia volta e a barriga comeca a aparecer de forma bonita.
+E o melhor momento para estabelecer habitos solidos.
+
+CONDUTAS ESPECIFICAS PARA O 2o TRIMESTRE:
+- Acrescentar +340 kcal ao dia em relacao a manutencao (ja calculado)
+- O bebe esta em fase de crescimento acelerado — proteina e FUNDAMENTAL
+- Ferro e calcio tornam-se ainda mais importantes neste periodo
+- Constipacao pode continuar — fibras, agua e movimento sao essenciais
+- Exercicios fisicos sao geralmente bem tolerados (com liberacao medica)
+- Hidratacao: peso x 35ml/dia
+- Inchazo leve pode comecar — monitorar ingestao de sodio
+- Omega-3 DHA e crucial para desenvolvimento cerebral fetal
+- Tom da carta: celebrar a fase de energia e estimular a construcao de habitos"""
+
+    else:
+        contexto_trimestre = """CONTEXTO DO 3o TRIMESTRE (semanas 27 a 40):
+A reta final da gestacao. O bebe esta crescendo rapidamente e o corpo
+da mae esta se preparando para o parto. E normal sentir:
+- Maior dificuldade para comer grandes volumes (bebe ocupa espaco)
+- Refluxo e azia mais frequentes
+- Inchazo nos pes e maos
+- Dificuldade para dormir
+- Maior cansaco e falta de ar
+
+CONDUTAS ESPECIFICAS PARA O 3o TRIMESTRE:
+- Refeicoes MENORES e mais frequentes — o estomago tem menos espaco
+- Acrescentar +450 kcal ao dia em relacao a manutencao (ja calculado)
+- Hidratacao: peso x 40ml/dia (aumenta em relacao aos trimestres anteriores)
+- Evitar alimentos que pioram refluxo: frituras, acidos, cafe em excesso
+- Calcio e vitamina D sao criticos para mineralizacao ossea do bebe
+- Ferro: verificar ferritina — anemia no 3o trimestre e mais perigosa
+- Proteina alta para suportar crescimento fetal e preparar o perineo
+- CEIA OBRIGATORIA — impede hipoglicemia noturna
+- Exercicios de baixo impacto (caminhada, hidroginastica pre-natal se liberado)
+- Tom da carta: encorajar a chegada da reta final, celebrar a jornada,
+  preparar emocionalmente para o parto"""
+
     # ── Prompt clinico completo para o Claude ────────────────────────────────
     prompt = f"""Voce e Dra. Ana, nutricionista especialista em gestacao da equipe Gestar Bem.
 Seu metodo e clinico, estrategico e individualizado — nunca generico.
@@ -264,11 +327,13 @@ DADOS DA GESTANTE:
 
 {bloco_calculos}
 
+{contexto_trimestre}
+
 PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
 
 1. ANALISE DE EXAMES (aplique estas condutas se houver valores informados):
    - Glicose >= 92 mg/dL → Diabetes gestacional: plano com controle glicemico rigoroso,
-     reducao de carboidratos, ceia obrigatoria, orientar monitoramento com glicosimetro
+     reducao de carboidratos simples, ceia obrigatoria, orientar monitoramento com glicosimetro
    - Glicose 90-91 mg/dL → Risco: dieta preventiva com controle de carboidratos simples
    - Glicose < 90 mg/dL → Normal: plano flexivel
    - Vitamina D < 50 → Orientar suplementacao + alimentos fontes (sardinha, ovos, funghi)
@@ -293,9 +358,10 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
      evitar odores fortes, gengibre em quantidades seguras
    - Constipacao: aumentar fibras, agua e movimento
    - Desejo por doce: proteina + gordura boa nas refeicoes para estabilizar glicemia
+   - Refluxo/azia (3o tri): evitar frituras, acidos, refeicoes grandes a noite
 
 4. SUPLEMENTACAO BASE PARA GESTANTES:
-   - Acido folico (verificar se ja usa)
+   - Acido folico (verificar se ja usa — essencial no 1o tri)
    - Vitamina D3 (verificar exame)
    - Omega-3 DHA (seguro e importante para cerebro fetal)
    - Ferro (conforme necessidade — verificar ferritina)
@@ -307,6 +373,7 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - Trate sempre pelo primeiro nome
    - Palavras de encorajamento, proposito e fe
    - Nunca tom clinico frio — sempre humanizado
+   - Adapte o tom ao momento do trimestre (ver contexto acima)
 
 INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automaticamente):
 
@@ -323,9 +390,9 @@ ATENCAO: texto → alerta vermelho em negrito
 SECOES OBRIGATORIAS (nesta ordem exata):
 
 ## CARTA DE BOAS-VINDAS
-Carta calorosa e personalizada para {nome}. Mencione a situacao especifica dela
-(trimestre, como ela se sente, preocupacoes relatadas). Inclua citacao biblica
-relevante e palavras de encorajamento. 3 a 4 paragrafos.
+Carta calorosa e personalizada para {nome}. Mencione o trimestre especifico,
+como ela pode estar se sentindo neste momento, e as preocupacoes que ela relatou.
+Inclua citacao biblica relevante e palavras de encorajamento. 3 a 4 paragrafos.
 
 ---
 
@@ -348,10 +415,11 @@ Orientacao de horario e forma de uso. Sempre finalizar: "Confirme com seu medico
 ## OBJETIVOS DO SEU PLANO
 Lista dos objetivos personalizados para {nome} neste trimestre.
 Seja especifico: nao "emagrecer" mas "controlar o ganho de peso dentro da faixa saudavel para voce".
+Inclua objetivos especificos do trimestre atual.
 
 ## INFORMACOES IMPORTANTES ANTES DE COMECAR
 Como pesar alimentos, usar o Fat Secret, horarios ideais, como substituir alimentos.
-Dicas praticas do dia a dia.
+Dicas praticas do dia a dia. Inclua dicas especificas para os desafios do trimestre atual.
 
 ---
 
@@ -359,20 +427,21 @@ Dicas praticas do dia a dia.
 Para cada refeicao: opcao principal + 2 opcoes de substituicao.
 Inclua porcoes em gramas. Proteina em TODAS as refeicoes.
 Cafe da manha / Lanche da manha / Almoco / Lanche da tarde / Jantar / Ceia (se necessario).
-Adapte conforme horario de fome, rotina e intolerancia alimentar informados.
+Adapte conforme horario de fome, rotina, intolerancia alimentar e desafios do trimestre.
 
 ---
 
 ## ORIENTACOES DE EXERCICIOS
-Adapte conforme liberacao medica, trimestre, nivel atual e limitacoes fisicas.
+Adapte conforme liberacao medica, trimestre atual, nivel atual e limitacoes fisicas.
 Se nao liberada: orientacoes de movimento leve (caminhada, alongamento).
-Se liberada: programa semanal com tipo, duracao e frequencia.
+Se liberada: programa semanal com tipo, duracao e frequencia adequados ao trimestre.
 Sempre incluir orientacoes de seguranca para gestantes.
 
 ---
 
 ## CONSIDERACOES FINAIS
-Encerramento com encorajamento, lembretes dos pontos mais importantes do plano,
+Encerramento com encorajamento especifico para o momento do trimestre,
+lembretes dos pontos mais importantes do plano,
 e informacoes de contato da equipe Gestar Bem.
 
 Gere o plano COMPLETO, detalhado e personalizado. Minimo de 1800 palavras.
