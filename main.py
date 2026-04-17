@@ -15,7 +15,7 @@ Fator atividade:
 
 import os, logging, re, threading, base64, json, traceback, atexit
 import urllib.request, urllib.error, urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 from psycopg2.extras import Json as PgJson
@@ -72,6 +72,12 @@ def init_db():
                 processado_em TIMESTAMP,
                 erro          TEXT
             )
+        """)
+        # Indice para o agendador nao fazer full-scan a cada minuto
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_fila_pendente
+            ON planos_agendados (agendado_para)
+            WHERE processado = FALSE
         """)
         conn.commit()
         cur.close()
@@ -503,7 +509,7 @@ def gerar_plano():
     dados         = request.get_json(force=True) or {}
     nome          = dados.get('nome', 'Paciente')
     email         = dados.get('email', '')
-    agendado_para = datetime.now() + timedelta(hours=DELAY_HORAS)
+    agendado_para = datetime.now(timezone.utc) + timedelta(hours=DELAY_HORAS)
     minutos       = round(DELAY_HORAS * 60)
 
     conn = None
@@ -851,6 +857,8 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
         max_tokens=8000,
         messages=[{"role": "user", "content": prompt}]
     )
+    if not message.content:
+        raise ValueError("Claude retornou resposta vazia — abortando")
     plano_texto = message.content[0].text
     log.info(f"Plano gerado: {len(plano_texto)} chars")
 
