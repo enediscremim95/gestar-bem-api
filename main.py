@@ -292,7 +292,16 @@ def calcular_dados_clinicos(dados):
 
 @app.route('/gerar-plano', methods=['POST'])
 def gerar_plano():
-    dados = request.get_json()
+    import traceback
+    try:
+        return _gerar_plano_interno()
+    except Exception as e:
+        log.error(f"ERRO CRITICO: {traceback.format_exc()}")
+        return jsonify({"erro": str(e), "detalhe": traceback.format_exc()}), 500
+
+
+def _gerar_plano_interno():
+    dados = request.get_json(force=True)
 
     # Extrair campos do formulario
     nome               = dados.get('nome', 'Paciente')
