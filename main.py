@@ -72,7 +72,10 @@ Equipe Gestar Bem 🌸"""
         "from":    {"email": remetente, "name": "Gestar Bem"},
         "subject": "Seu Plano Personalizado — Gestar Bem",
         "content": [{"type": "text/plain", "value": corpo}],
-        "attachments": anexos
+        "attachments": anexos,
+        "tracking_settings": {
+            "click_tracking": {"enable": False, "enable_text": False}
+        }
     }
 
     req = urllib.request.Request(
