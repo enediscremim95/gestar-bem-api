@@ -73,7 +73,9 @@ Equipe Gestar Bem 🌸"""
         msg.attach(part)
 
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as server:
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.ehlo()
+        server.starttls(context=context)
         server.login(remetente, senha)
         server.sendmail(remetente, destinatario, msg.as_string())
     log.info(f"Email enviado para {destinatario} com {num_anexos} PDF(s)")
