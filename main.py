@@ -31,8 +31,12 @@ logging.basicConfig(level=logging.INFO)
 
 # ── Funcao de envio de email ─────────────────────────────────────────────────
 
-def enviar_email_pdf(destinatario, nome_paciente, pdf_bytes, nome_arquivo):
-    """Envia o PDF por email via Gmail SMTP SSL (porta 465)."""
+def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista):
+    """Envia um ou mais PDFs por email via Gmail SMTP SSL (porta 465).
+
+    Args:
+        pdfs_lista: lista de tuples (pdf_bytes, nome_arquivo)
+    """
     remetente = os.environ.get('GMAIL_USER', '')
     senha     = os.environ.get('GMAIL_APP_PASSWORD', '')
 
@@ -41,11 +45,18 @@ def enviar_email_pdf(destinatario, nome_paciente, pdf_bytes, nome_arquivo):
     msg['To']      = destinatario
     msg['Subject'] = f'Seu Plano Personalizado — Gestar Bem 💜'
 
+    num_anexos = len(pdfs_lista)
+    descricao_anexos = (
+        "o seu Plano de Nutrição completo e o seu Plano de Exercícios"
+        if num_anexos > 1 else
+        "o seu Plano de Nutrição completo"
+    )
+
     corpo = f"""Olá, {nome_paciente}! 💜
 
 Seu plano personalizado do programa Gestar Bem está pronto!
 
-Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.
+Em anexo você encontra {descricao_anexos}, preparados especialmente para você com muito carinho e cuidado.
 
 Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.
 
@@ -54,17 +65,127 @@ Equipe Gestar Bem 🌸"""
 
     msg.attach(MIMEText(corpo, 'plain', 'utf-8'))
 
-    part = MIMEBase('application', 'octet-stream')
-    part.set_payload(pdf_bytes)
-    encoders.encode_base64(part)
-    part.add_header('Content-Disposition', f'attachment; filename="{nome_arquivo}"')
-    msg.attach(part)
+    for pdf_bytes, nome_arquivo in pdfs_lista:
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(pdf_bytes)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{nome_arquivo}"')
+        msg.attach(part)
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as server:
         server.login(remetente, senha)
         server.sendmail(remetente, destinatario, msg.as_string())
-    log.info(f"Email enviado para {destinatario}")
+    log.info(f"Email enviado para {destinatario} com {num_anexos} PDF(s)")
+
+
+# ── Selecao do PDF de exercicios ─────────────────────────────────────────────
+
+PDF_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
+
+def selecionar_pdf_limitacao(limitacao, nivel, tri):
+    """Seleciona PDF de limitacao com base no tipo de limitacao relatada."""
+    lim = limitacao.lower()
+
+    if 'joelho' in lim:
+        arq = 'joelho_avancado_III.pdf' if tri == 'III' else 'joelho_avancado.pdf'
+        return os.path.join(PDF_BASE, 'limitacao', arq)
+
+    if 'pulso' in lim or 'punho' in lim or 'mao' in lim or 'mão' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'pulso_iniciante.pdf')
+
+    if 'afundo' in lim:
+        arq = 'sem_afundo_iniciante_III.pdf' if tri == 'III' else 'sem_afundo_iniciante.pdf'
+        return os.path.join(PDF_BASE, 'limitacao', arq)
+
+    if ('agachamento' in lim or 'agachar' in lim) and 'leg' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'sem_agachamento_leg_avancado.pdf')
+
+    if 'agachamento' in lim or 'agachar' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'sem_agachamento_avancado.pdf')
+
+    if 'leg' in lim and ('eleva' in lim or 'ombro' in lim):
+        if tri == 'III':
+            arq = ('sem_leg_elevacao_intermediario_III.pdf'
+                   if nivel == 'intermediario' else 'sem_leg_elevacao_iniciante_III.pdf')
+            return os.path.join(PDF_BASE, 'limitacao', arq)
+
+    if 'leg' in lim and tri == 'III':
+        return os.path.join(PDF_BASE, 'limitacao', 'sem_leg_elevacao_iniciante_III.pdf')
+
+    if 'eleva' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'sem_elevacao_avancado.pdf')
+
+    if 'extensora' in lim or 'extensor' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'sem_extensora_intermediario_I.pdf')
+
+    if 'maquina' in lim or 'máquina' in lim:
+        return os.path.join(PDF_BASE, 'limitacao', 'somente_maquinas.pdf')
+
+    # Limitacao generica / multipla
+    return os.path.join(PDF_BASE, 'limitacao', 'multipla.pdf')
+
+
+def selecionar_pdf_exercicio(dados, trimestre):
+    """
+    Seleciona o(s) PDF(s) de exercicio correto(s) com base nos dados da paciente.
+    Retorna lista de tuples (pdf_bytes, nome_arquivo) ou lista vazia.
+    """
+    liberado = str(dados.get('liberado_exercicio', '')).lower()
+    if 'nao' in liberado or 'não' in liberado or not liberado.strip():
+        log.info("Paciente nao liberada para exercicios — sem PDF de treino")
+        return []
+
+    rotina  = str(dados.get('rotina_exercicio', '')).lower()
+    nivel_r = str(dados.get('nivel_exercicio', '')).lower()
+    limit   = str(dados.get('limitacao_exercicio', '')).strip()
+
+    # Normalizar nivel
+    if 'iniciante' in nivel_r or 'leve' in nivel_r:
+        nivel = 'iniciante'
+    elif 'intermediar' in nivel_r or 'moder' in nivel_r:
+        nivel = 'intermediario'
+    elif 'avan' in nivel_r or 'intens' in nivel_r:
+        nivel = 'avancado'
+    else:
+        nivel = 'iniciante'
+
+    tri = trimestre  # 'I', 'II', 'III'
+
+    eh_academia = any(p in rotina for p in ('academia', 'muscula', 'gym', 'palestra'))
+    eh_casa     = any(p in rotina for p in ('casa', 'home', 'apartamento'))
+    tem_limit   = bool(limit and limit.lower() not in
+                       ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
+                        'sem limitação', 'nao tenho', 'não tenho', ''))
+
+    caminhos = []
+
+    if eh_academia or (not eh_academia and not eh_casa):
+        # Academia
+        if tem_limit:
+            c = selecionar_pdf_limitacao(limit, nivel, tri)
+        else:
+            c = os.path.join(PDF_BASE, 'academia', f'academia_{tri}_{nivel}.pdf')
+        caminhos.append(c)
+
+    if eh_casa:
+        c = os.path.join(PDF_BASE, 'casa', f'casa_{tri}.pdf')
+        caminhos.append(c)
+
+    resultado = []
+    for caminho in caminhos:
+        if caminho and os.path.exists(caminho):
+            with open(caminho, 'rb') as f:
+                pdf_bytes = f.read()
+            nome = 'Plano_Exercicios_Academia.pdf' if 'academia' in caminho else \
+                   'Plano_Exercicios_Casa.pdf'    if 'casa'     in caminho else \
+                   'Plano_Exercicios.pdf'
+            resultado.append((pdf_bytes, nome))
+            log.info(f"PDF exercicio selecionado: {caminho}")
+        else:
+            log.warning(f"PDF nao encontrado: {caminho}")
+
+    return resultado
 
 
 # ── Calculos clinicos (TMB, macros, hidratacao) ──────────────────────────────
@@ -459,9 +580,17 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
     plano_texto = message.content[0].text
     log.info(f"Plano gerado: {len(plano_texto)} chars")
 
-    # ── Gerar PDF ─────────────────────────────────────────────────────────────
-    pdf_b64  = gerar_pdf_base64(dados, plano_texto)
-    nome_pdf = nome_arquivo_pdf(nome, semanas_gestacao)
+    # ── Gerar PDF nutricional ─────────────────────────────────────────────────
+    pdf_b64      = gerar_pdf_base64(dados, plano_texto)
+    nome_pdf     = nome_arquivo_pdf(nome, semanas_gestacao)
+    pdf_nutri    = base64.b64decode(pdf_b64)
+
+    # ── Selecionar PDFs de exercicio ─────────────────────────────────────────
+    tri_codigo = calculos['trimestre'] if calculos else 'I'
+    pdfs_exercicio = selecionar_pdf_exercicio(dados, tri_codigo)
+
+    # ── Montar lista completa de PDFs para o email ────────────────────────────
+    pdfs_email = [(pdf_nutri, nome_pdf)] + pdfs_exercicio
 
     # ── Enviar email ──────────────────────────────────────────────────────────
     email_enviado = False
@@ -469,10 +598,9 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
 
     if email:
         try:
-            pdf_bytes = base64.b64decode(pdf_b64)
-            enviar_email_pdf(email, nome, pdf_bytes, nome_pdf)
+            enviar_email_pdf(email, nome, pdfs_email)
             email_enviado = True
-            log.info(f"Email enviado com sucesso para {email}")
+            log.info(f"Email enviado com sucesso para {email} ({len(pdfs_email)} PDFs)")
         except Exception as e:
             email_erro = str(e)
             log.error(f"Erro ao enviar email: {e}")
@@ -483,9 +611,10 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
         "email":          email,
         "email_enviado":  email_enviado,
         "email_erro":     email_erro,
-        "trimestre":      calculos['trimestre'] if calculos else "?",
+        "trimestre":      tri_codigo,
         "calorias_alvo":  calculos['calorias_alvo'] if calculos else 0,
         "nome_arquivo":   nome_pdf,
+        "pdfs_enviados":  len(pdfs_email),
     })
 
 
@@ -499,8 +628,8 @@ def testar_email():
     nome_teste   = dados.get('nome', 'Teste')
 
     try:
-        pdf_fake  = b'%PDF-1.4 teste'
-        enviar_email_pdf(destinatario, nome_teste, pdf_fake, 'teste.pdf')
+        pdf_fake = b'%PDF-1.4 teste'
+        enviar_email_pdf(destinatario, nome_teste, [(pdf_fake, 'teste.pdf')])
         return jsonify({"status": "ok", "mensagem": f"Email enviado para {destinatario}"})
     except Exception as e:
         return jsonify({"status": "erro", "mensagem": str(e)}), 500
