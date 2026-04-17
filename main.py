@@ -145,66 +145,6 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
     return os.path.join(PDF_BASE, 'limitacao', 'multipla.pdf')
 
 
-def selecionar_pdf_exercicio(dados, trimestre):
-    """
-    Seleciona o(s) PDF(s) de exercicio correto(s) com base nos dados da paciente.
-    Retorna lista de tuples (pdf_bytes, nome_arquivo) ou lista vazia.
-    """
-    liberado = str(dados.get('liberado_exercicio', '')).lower()
-    if 'nao' in liberado or 'não' in liberado or not liberado.strip():
-        log.info("Paciente nao liberada para exercicios — sem PDF de treino")
-        return []
-
-    rotina  = str(dados.get('rotina_exercicio', '')).lower()
-    nivel_r = str(dados.get('nivel_exercicio', '')).lower()
-    limit   = str(dados.get('limitacao_exercicio', '')).strip()
-
-    # Normalizar nivel
-    if 'iniciante' in nivel_r or 'leve' in nivel_r:
-        nivel = 'iniciante'
-    elif 'intermediar' in nivel_r or 'moder' in nivel_r:
-        nivel = 'intermediario'
-    elif 'avan' in nivel_r or 'intens' in nivel_r:
-        nivel = 'avancado'
-    else:
-        nivel = 'iniciante'
-
-    tri = trimestre  # 'I', 'II', 'III'
-
-    eh_academia = any(p in rotina for p in ('academia', 'muscula', 'gym', 'palestra'))
-    eh_casa     = any(p in rotina for p in ('casa', 'home', 'apartamento'))
-    tem_limit   = bool(limit and limit.lower() not in
-                       ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
-                        'sem limitação', 'nao tenho', 'não tenho', ''))
-
-    caminhos = []
-
-    if eh_academia or (not eh_academia and not eh_casa):
-        # Academia
-        if tem_limit:
-            c = selecionar_pdf_limitacao(limit, nivel, tri)
-        else:
-            c = os.path.join(PDF_BASE, 'academia', f'academia_{tri}_{nivel}.pdf')
-        caminhos.append(c)
-
-    if eh_casa:
-        c = os.path.join(PDF_BASE, 'casa', f'casa_{tri}.pdf')
-        caminhos.append(c)
-
-    resultado = []
-    for caminho in caminhos:
-        if caminho and os.path.exists(caminho):
-            with open(caminho, 'rb') as f:
-                pdf_bytes = f.read()
-            nome = 'Plano_Exercicios_Academia.pdf' if 'academia' in caminho else \
-                   'Plano_Exercicios_Casa.pdf'    if 'casa'     in caminho else \
-                   'Plano_Exercicios.pdf'
-            resultado.append((pdf_bytes, nome))
-            log.info(f"PDF exercicio selecionado: {caminho}")
-        else:
-            log.warning(f"PDF nao encontrado: {caminho}")
-
-    return resultado
 
 
 def selecionar_links_exercicio(dados, trimestre):
@@ -755,17 +695,7 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
             email_erro = str(e)
             log.error(f"Erro ao enviar email: {e}")
 
-    return jsonify({
-        "status":         "ok",
-        "nome":           nome,
-        "email":          email,
-        "email_enviado":  email_enviado,
-        "email_erro":     email_erro,
-        "trimestre":      tri_codigo,
-        "calorias_alvo":  calculos['calorias_alvo'] if calculos else 0,
-        "nome_arquivo":   nome_pdf,
-        "pdfs_enviados":  len(pdfs_email),
-    })
+    log.info(f"[BG] Concluido para {nome} — email_enviado={email_enviado} erro='{email_erro}'")
 
 
 # ── Endpoint de teste de email ────────────────────────────────────────────────
