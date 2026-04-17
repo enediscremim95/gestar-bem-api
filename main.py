@@ -545,10 +545,12 @@ Dicas praticas do dia a dia. Inclua dicas especificas para os desafios do trimes
 ---
 
 ## PLANO ALIMENTAR COMPLETO
-Para cada refeicao: opcao principal + 2 opcoes de substituicao.
-Inclua porcoes em gramas. Proteina em TODAS as refeicoes.
-Cafe da manha / Lanche da manha / Almoco / Lanche da tarde / Jantar / Ceia (se necessario).
+Para cada refeicao: opcao principal + MINIMO 5 opcoes de substituicao.
+Inclua porcoes em gramas em todas as opcoes. Proteina em TODAS as refeicoes.
+Refeicoes: Cafe da manha / Lanche da manha / Almoco / Lanche da tarde / Jantar / Ceia (se necessario).
 Adapte conforme horario de fome, rotina, intolerancia alimentar e desafios do trimestre.
+As substituicoes devem ser variadas: opcoes praticas, opcoes economicas, opcoes rapidas,
+opcoes para quem tem enjoo, opcoes vegetarianas — sempre mantendo a proteina e as calorias equivalentes.
 
 ---
 
@@ -573,7 +575,7 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
 
     log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-5",
         max_tokens=8000,
         messages=[{"role": "user", "content": prompt}]
     )
