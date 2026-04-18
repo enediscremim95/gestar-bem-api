@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, logging, re, threading, base64, json, traceback, atexit
+import os, logging, re, threading, base64, json, traceback, atexit, time
 import urllib.request, urllib.error, urllib.parse
 from datetime import datetime, timedelta, timezone
 
@@ -563,16 +563,23 @@ def gerar_plano():
 
 
 def _processar_em_background(dados):
-    """Executa todo o processamento (Claude + PDF + email) em thread separada."""
+    """Executa processamento em thread separada (modo fallback sem banco).
+    Retenta automaticamente ate MAX_TENTATIVAS vezes com intervalo de 60s."""
     nome  = dados.get('nome', 'Paciente')
     email = dados.get('email', '')
-    try:
-        log.info(f"[BG] Iniciando processamento para {nome}")
-        with app.app_context():
-            _gerar_plano_interno(dados)
-        log.info(f"[BG] Processamento concluido para {nome}")
-    except Exception as e:
-        log.error(f"[BG] ERRO para {nome} ({email}): {traceback.format_exc()}")
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
+        try:
+            log.info(f"[BG] Tentativa {tentativa}/{MAX_TENTATIVAS} para {nome}")
+            with app.app_context():
+                _gerar_plano_interno(dados)
+            log.info(f"[BG] Concluido com sucesso para {nome}")
+            return
+        except Exception:
+            log.error(f"[BG] Erro na tentativa {tentativa}/{MAX_TENTATIVAS} para {nome} ({email}): {traceback.format_exc()}")
+            if tentativa < MAX_TENTATIVAS:
+                log.info(f"[BG] Aguardando 60s antes da proxima tentativa...")
+                time.sleep(60)
+    log.error(f"[BG] Desistindo apos {MAX_TENTATIVAS} tentativas para {nome} ({email})")
 
 
 def _gerar_plano_interno(dados):
