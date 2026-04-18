@@ -1097,14 +1097,6 @@ NUNCA coloque carne/frango se a paciente for vegetariana ou tiver intolerancia i
 
 ---
 
-## ORIENTACOES DE EXERCICIOS
-Adapte conforme liberacao medica, trimestre atual, nivel atual e limitacoes fisicas.
-Se nao liberada: orientacoes de movimento leve (caminhada, alongamento).
-Se liberada: programa semanal com tipo, duracao e frequencia adequados ao trimestre.
-Sempre incluir orientacoes de seguranca para gestantes.
-
----
-
 ## CONSIDERACOES FINAIS
 Encerramento com encorajamento especifico para o momento do trimestre,
 lembretes dos pontos mais importantes do plano,
