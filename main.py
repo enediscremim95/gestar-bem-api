@@ -1256,7 +1256,7 @@ def painel():
             <td><a href="/painel/detalhes/{rid}?token={token_recebido}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
         </tr>"""
 
-    agora = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')
+    agora = datetime.now(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y %H:%M')
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1302,7 +1302,7 @@ def painel():
     </div>
   </div>
   <div class="content">
-  <div class="sub">Atualizado em {agora} (UTC) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
+  <div class="sub">Atualizado em {agora} (Brasília) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
 
   <form method="GET" action="/painel/buscar" style="margin-bottom:28px;display:flex;gap:10px;align-items:center;">
     <input type="hidden" name="token" value="{token_recebido}">
