@@ -1165,6 +1165,139 @@ def index():
     return 'API Gestar Bem operando!', 200
 
 
+@app.route('/painel')
+def painel():
+    """Dashboard simples — protegido por PAINEL_TOKEN."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2 style="font-family:sans-serif;color:#c00">Acesso negado. Informe ?token=SENHA na URL.</h2>', 403
+
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+
+        # Resumo geral
+        cur.execute("""
+            SELECT
+                COUNT(*)                                                                    AS total,
+                COUNT(*) FILTER (WHERE processado = TRUE
+                                 AND processado_em >= NOW() - INTERVAL '24 hours')         AS hoje,
+                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas = 0
+                                 AND (proxima_tentativa IS NULL OR proxima_tentativa <= NOW())) AS pendentes,
+                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)              AS com_falha,
+                COUNT(*) FILTER (WHERE processado = TRUE)                                  AS concluidos
+            FROM planos_agendados
+        """)
+        r = cur.fetchone()
+        total, hoje, pendentes, com_falha, concluidos = r
+
+        # Ultimos 20 registros
+        cur.execute("""
+            SELECT
+                id,
+                dados->>'nome'  AS nome,
+                dados->>'email' AS email,
+                agendado_para,
+                processado,
+                tentativas,
+                processado_em,
+                erro
+            FROM planos_agendados
+            ORDER BY criado_em DESC
+            LIMIT 20
+        """)
+        registros = cur.fetchall()
+        cur.close()
+    except Exception as e:
+        return f'<h2>Erro ao consultar banco: {e}</h2>', 500
+    finally:
+        if conn:
+            conn.close()
+
+    def linha_cor(processado, tentativas, erro):
+        if processado and not erro:
+            return '#e8f5e9'  # verde claro
+        if not processado and tentativas > 0:
+            return '#fff3e0'  # laranja claro
+        if erro:
+            return '#ffebee'  # vermelho claro
+        return '#ffffff'
+
+    linhas_html = ''
+    for reg in registros:
+        rid, nome, email, agendado, processado, tentativas, processado_em, erro = reg
+        status = '✅ Enviado' if processado and not erro else (f'⚠️ Tentativas: {tentativas}' if not processado else '❌ Falhou')
+        cor    = linha_cor(processado, tentativas, erro)
+        ag_str = agendado.strftime('%d/%m %H:%M') if agendado else '-'
+        pr_str = processado_em.strftime('%d/%m %H:%M') if processado_em else '-'
+        erro_str = (erro[:60] + '...') if erro and len(erro) > 60 else (erro or '')
+        linhas_html += f"""
+        <tr style="background:{cor}">
+            <td>{rid}</td>
+            <td>{nome or '-'}</td>
+            <td style="font-size:12px">{email or '-'}</td>
+            <td>{ag_str}</td>
+            <td>{pr_str}</td>
+            <td>{status}</td>
+            <td style="font-size:11px;color:#c00">{erro_str}</td>
+        </tr>"""
+
+    agora = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
+  <title>Painel — Gestar Bem</title>
+  <style>
+    body {{ font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }}
+    h1   {{ color: #6a1b9a; margin-bottom: 4px; }}
+    .sub {{ color: #888; font-size: 13px; margin-bottom: 24px; }}
+    .cards {{ display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }}
+    .card  {{ background: #fff; border-radius: 10px; padding: 20px 28px;
+               box-shadow: 0 1px 4px rgba(0,0,0,.1); min-width: 120px; text-align: center; }}
+    .card .num  {{ font-size: 36px; font-weight: bold; color: #6a1b9a; }}
+    .card .lab  {{ font-size: 13px; color: #555; margin-top: 4px; }}
+    .card.alerta .num {{ color: #e65100; }}
+    .card.falha  .num {{ color: #c62828; }}
+    table {{ width: 100%; border-collapse: collapse; background: #fff;
+              border-radius: 10px; overflow: hidden;
+              box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
+    th    {{ background: #6a1b9a; color: #fff; padding: 10px 12px;
+              text-align: left; font-size: 13px; }}
+    td    {{ padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #eee; }}
+    tr:last-child td {{ border-bottom: none; }}
+  </style>
+</head>
+<body>
+  <h1>🌸 Gestar Bem — Painel</h1>
+  <div class="sub">Atualizado em {agora} (UTC) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
+
+  <div class="cards">
+    <div class="card"><div class="num">{hoje}</div><div class="lab">Enviados hoje</div></div>
+    <div class="card"><div class="num">{pendentes}</div><div class="lab">Pendentes</div></div>
+    <div class="card {'alerta' if com_falha > 0 else ''}"><div class="num">{com_falha}</div><div class="lab">Com falha</div></div>
+    <div class="card"><div class="num">{concluidos}</div><div class="lab">Total concluídos</div></div>
+    <div class="card"><div class="num">{total}</div><div class="lab">Total geral</div></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Paciente</th><th>Email</th>
+        <th>Agendado</th><th>Processado</th><th>Status</th><th>Erro</th>
+      </tr>
+    </thead>
+    <tbody>{linhas_html}</tbody>
+  </table>
+</body>
+</html>"""
+    return html, 200
+
+
 @app.route('/health')
 def health():
     """
