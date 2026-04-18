@@ -847,6 +847,7 @@ def _gerar_plano_interno(dados):
     horario_fome       = dados.get('horario_fome', '')
     observacoes        = dados.get('observacoes', '')
     exames_anexo       = dados.get('exames_anexo', '')
+    usa_insulina       = dados.get('usa_insulina', '')
 
     # Calculos clinicos automaticos
     calculos = calcular_dados_clinicos(dados)
@@ -974,6 +975,7 @@ DADOS DA GESTANTE:
 - Horario de mais fome: {horario_fome}
 - Observacoes adicionais: {observacoes}
 - Exames / arquivos enviados: {exames_anexo}
+- Usa insulina para diabetes gestacional: {usa_insulina}
 
 {bloco_calculos}
 
@@ -1000,6 +1002,12 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - Sem jejum — sem longos periodos sem comer
    - Se treina cedo: incluir pre-treino antes do exercicio
    - Se diabetes gestacional: incluir CEIA obrigatoria
+   - Se diabetes gestacional COM USO DE INSULINA: regras adicionais OBRIGATORIAS:
+     * CEIA obrigatoria (nunca dormir sem comer)
+     * Refeicoes a cada 3 horas sem excecao — nenhum intervalo maior que 3h
+     * Distribuir carboidratos de forma uniforme ao longo do dia (evitar pico glicemico)
+     * Sempre proteina + gordura boa junto com carboidrato para retardar absorcao
+     * Nunca refeicao so de carboidrato — risco de hipoglicemia
    - Estrutura basica:
      * Cafe da manha: proteina + carboidrato + fibras
      * Almoco: proteina + carboidrato + gordura boa + salada + legumes
