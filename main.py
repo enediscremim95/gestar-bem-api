@@ -700,7 +700,7 @@ CONDUTAS ESPECIFICAS PARA O 3o TRIMESTRE:
   preparar emocionalmente para o parto"""
 
     # ── Prompt clinico completo para o Claude ────────────────────────────────
-    prompt = f"""Voce e Dra. Ana, nutricionista especialista em gestacao da equipe Gestar Bem.
+    prompt = f"""Voce e Dra. Jessica D'Agostini, nutricionista especialista em gestacao da equipe Gestar Bem.
 Seu metodo e clinico, estrategico e individualizado — nunca generico.
 
 DADOS DA GESTANTE:
