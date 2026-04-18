@@ -1293,7 +1293,9 @@ def painel():
 </head>
 <body>
   <div class="header">
-    <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:56px;">
+    <div style="background:#fff;border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:52px;">
+    </div>
     <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
     <div>
       <div class="titulo">Painel de Controle</div>
@@ -1447,7 +1449,9 @@ def _painel_html_base(token, conteudo_html):
 </head>
 <body>
   <div class="header">
-    <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:56px;">
+    <div style="background:#fff;border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:52px;">
+    </div>
     <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
     <div>
       <div class="titulo">Painel de Controle</div>
