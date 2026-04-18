@@ -732,6 +732,17 @@ def servir_treino(filename):
     return send_from_directory(PDF_BASE, filename)
 
 
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
+
+@app.route('/imagens/<filename>')
+def servir_imagem(filename):
+    """Serve imagens do projeto (logo, ilustracao) para uso interno no painel."""
+    caminho = os.path.abspath(os.path.join(IMAGES_DIR, filename))
+    if not caminho.startswith(os.path.abspath(IMAGES_DIR)):
+        abort(403)
+    return send_from_directory(IMAGES_DIR, filename)
+
+
 @app.route('/gerar-plano', methods=['POST'])
 def gerar_plano():
     """Recebe os dados e agenda o plano no banco de dados."""
@@ -1252,28 +1263,41 @@ def painel():
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="60">
   <title>Painel — Gestar Bem</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    body {{ font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }}
-    h1   {{ color: #6a1b9a; margin-bottom: 4px; }}
+    body {{ font-family: 'Inter', sans-serif; background: #f8f4fb; margin: 0; padding: 0; }}
+    .header {{ background: #9B27AF; padding: 16px 28px; display: flex; align-items: center; gap: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }}
+    .header img {{ height: 48px; filter: brightness(0) invert(1); }}
+    .header .titulo {{ color: #fff; font-family: 'Playfair Display', serif; font-size: 22px; letter-spacing: 0.5px; }}
+    .header .sub-header {{ color: rgba(255,255,255,0.75); font-size: 12px; margin-top: 2px; }}
+    .content {{ padding: 24px 28px; }}
     .sub {{ color: #888; font-size: 13px; margin-bottom: 24px; }}
     .cards {{ display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }}
-    .card  {{ background: #fff; border-radius: 10px; padding: 20px 28px;
-               box-shadow: 0 1px 4px rgba(0,0,0,.1); min-width: 120px; text-align: center; }}
-    .card .num  {{ font-size: 36px; font-weight: bold; color: #6a1b9a; }}
+    .card  {{ background: #fff; border-radius: 12px; padding: 20px 28px;
+               box-shadow: 0 1px 6px rgba(155,39,175,.1); min-width: 120px; text-align: center; border-top: 3px solid #9B27AF; }}
+    .card .num  {{ font-size: 36px; font-weight: bold; color: #9B27AF; }}
     .card .lab  {{ font-size: 13px; color: #555; margin-top: 4px; }}
     .card.alerta .num {{ color: #e65100; }}
-    .card.falha  .num {{ color: #c62828; }}
+    .card.alerta     {{ border-top-color: #e65100; }}
     table {{ width: 100%; border-collapse: collapse; background: #fff;
-              border-radius: 10px; overflow: hidden;
-              box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
-    th    {{ background: #6a1b9a; color: #fff; padding: 10px 12px;
-              text-align: left; font-size: 13px; }}
-    td    {{ padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #eee; }}
+              border-radius: 12px; overflow: hidden;
+              box-shadow: 0 1px 6px rgba(155,39,175,.1); }}
+    th    {{ background: #9B27AF; color: #fff; padding: 11px 14px;
+              text-align: left; font-size: 13px; font-weight: 500; }}
+    td    {{ padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #f0e6f6; }}
     tr:last-child td {{ border-bottom: none; }}
+    tr:hover td {{ background: #fdf6ff; }}
   </style>
 </head>
 <body>
-  <h1>🌸 Gestar Bem — Painel</h1>
+  <div class="header">
+    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem">
+    <div>
+      <div class="titulo">Painel de Controle</div>
+      <div class="sub-header">Sistema Gestar Bem</div>
+    </div>
+  </div>
+  <div class="content">
   <div class="sub">Atualizado em {agora} (UTC) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
 
   <div class="cards">
@@ -1293,6 +1317,7 @@ def painel():
     </thead>
     <tbody>{linhas_html}</tbody>
   </table>
+  </div>
 </body>
 </html>"""
     return html, 200
