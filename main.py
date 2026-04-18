@@ -1123,6 +1123,24 @@ As substituicoes devem ser coerentes com o perfil alimentar da paciente (ver reg
 NUNCA coloque substituicao vegetariana se o perfil da paciente e onivoro — mantenha proteina animal.
 NUNCA coloque carne/frango se a paciente for vegetariana ou tiver intolerancia informada.
 
+REGRA ESPECIAL — DIABETES GESTACIONAL (somente se glicose >= 92 mg/dL):
+Se a paciente tiver diabetes gestacional, inclua os seguintes alertas de medicao em vermelho
+EXATAMENTE nestes momentos do plano, usando o marcador "ATENCAO:" para cada um:
+
+Antes do Cafe da manha:
+ATENCAO: Medicao em jejum — objetivo: menos de 95 mg/dL
+
+Apos o Cafe da manha (logo depois das opcoes da refeicao):
+ATENCAO: Medicao 1h apos a primeira garfada — objetivo: menos de 140 mg/dL
+
+Apos o Almoco (logo depois das opcoes da refeicao):
+ATENCAO: Medicao 1h apos a primeira garfada — objetivo: menos de 140 mg/dL
+
+Apos o Jantar (logo depois das opcoes da refeicao):
+ATENCAO: Medicao 1h apos a primeira garfada — objetivo: menos de 140 mg/dL
+
+Se a paciente NAO tiver diabetes gestacional, NAO inclua esses alertas.
+
 ---
 
 ## CONSIDERACOES FINAIS
