@@ -14,7 +14,7 @@ Fator atividade:
 """
 
 import os, logging, re, threading, base64, json, traceback, atexit, time
-import urllib.request, urllib.error, urllib.parse
+import urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
@@ -260,20 +260,6 @@ def _base_url():
     return f"https://{dominio}"
 
 
-def encurtar_url(url):
-    """Encurta URL via TinyURL. Retorna URL original se falhar."""
-    try:
-        api = f"https://tinyurl.com/api-create.php?url={urllib.parse.quote(url, safe='')}"
-        req = urllib.request.Request(api, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            curta = resp.read().decode('utf-8').strip()
-            if curta.startswith('http'):
-                log.info(f"URL encurtada: {curta}")
-                return curta
-    except Exception as e:
-        log.warning(f"TinyURL falhou, usando URL original: {e}")
-    return url
-
 def selecionar_pdf_limitacao(limitacao, nivel, tri):
     """Seleciona PDF de limitacao com base no tipo de limitacao relatada."""
     lim = limitacao.lower()
@@ -321,15 +307,15 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
 
 def selecionar_links_exercicio(dados, trimestre):
     """
-    Retorna lista de (url, label) para os PDFs de exercicio.
-    Ex: [("https://.../treino/academia/academia_I_iniciante.pdf", "Plano Academia")]
+    Retorna sempre os dois links de treino (academia + casa).
+    Se houver limitacao fisica, o link de academia e substituido pelo PDF adaptado.
+    Retorna lista vazia se paciente nao estiver liberada para exercicios.
     """
     liberado = str(dados.get('liberado_exercicio', '')).lower()
     if 'nao' in liberado or 'não' in liberado or not liberado.strip():
         log.info("Paciente nao liberada para exercicios — sem link de treino")
         return []
 
-    rotina  = str(dados.get('rotina_exercicio', '')).lower()
     nivel_r = str(dados.get('nivel_exercicio', '')).lower()
     limit   = str(dados.get('limitacao_exercicio', '')).strip()
 
@@ -342,36 +328,35 @@ def selecionar_links_exercicio(dados, trimestre):
     else:
         nivel = 'iniciante'
 
-    tri = trimestre
-    eh_academia = any(p in rotina for p in ('academia', 'muscula', 'gym', 'palestra'))
-    eh_casa     = any(p in rotina for p in ('casa', 'home', 'apartamento'))
-    tem_limit   = bool(limit and limit.lower() not in
-                       ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
-                        'sem limitação', 'nao tenho', 'não tenho', ''))
+    tem_limit = bool(limit and limit.lower() not in
+                     ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
+                      'sem limitação', 'nao tenho', 'não tenho', ''))
 
     base  = _base_url()
     links = []
 
-    if eh_academia or (not eh_academia and not eh_casa):
-        if tem_limit:
-            full_path = selecionar_pdf_limitacao(limit, nivel, tri)
-            rel = os.path.relpath(full_path, PDF_BASE).replace('\\', '/')
-        else:
-            rel = f"academia/academia_{tri}_{nivel}.pdf"
+    # ── Link 1: Academia (ou adaptado se houver limitacao) ──
+    if tem_limit:
+        full_path = selecionar_pdf_limitacao(limit, nivel, trimestre)
+        rel   = os.path.relpath(full_path, PDF_BASE).replace('\\', '/')
+        label = "Plano de Treinos — Academia (adaptado para sua limitacao)"
+    else:
+        rel   = f"academia/academia_{trimestre}_{nivel}.pdf"
+        label = "Plano de Treinos — Academia"
 
-        caminho_local = os.path.join(PDF_BASE, rel.replace('/', os.sep))
-        if os.path.exists(caminho_local):
-            links.append((encurtar_url(f"{base}/treino/{rel}"), "Plano de Treinos — Academia"))
-        else:
-            log.warning(f"PDF de treino nao encontrado: {caminho_local}")
+    caminho_local = os.path.join(PDF_BASE, rel.replace('/', os.sep))
+    if os.path.exists(caminho_local):
+        links.append((f"{base}/treino/{rel}", label))
+    else:
+        log.warning(f"PDF academia nao encontrado: {caminho_local}")
 
-    if eh_casa:
-        rel = f"casa/casa_{tri}.pdf"
-        caminho_local = os.path.join(PDF_BASE, rel)
-        if os.path.exists(caminho_local):
-            links.append((encurtar_url(f"{base}/treino/{rel}"), "Plano de Treinos — Casa"))
-        else:
-            log.warning(f"PDF de treino nao encontrado: {caminho_local}")
+    # ── Link 2: Casa — sempre enviado ──
+    rel_casa      = f"casa/casa_{trimestre}.pdf"
+    caminho_casa  = os.path.join(PDF_BASE, rel_casa)
+    if os.path.exists(caminho_casa):
+        links.append((f"{base}/treino/{rel_casa}", "Plano de Treinos — Casa"))
+    else:
+        log.warning(f"PDF casa nao encontrado: {caminho_casa}")
 
     log.info(f"Links de treino selecionados: {[l for _, l in links]}")
     return links
