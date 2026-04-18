@@ -245,10 +245,36 @@ Acesse o painel do Railway para verificar os logs e reprocessar manualmente se n
         log.error(f"[ALERTA] Falha ao enviar alerta: {ex}")
 
 
+def limpar_banco():
+    """Remove registros processados com mais de 30 dias para nao acumular lixo no banco."""
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            DELETE FROM planos_agendados
+            WHERE processado = TRUE
+            AND criado_em < NOW() - INTERVAL '30 days'
+        """)
+        deletados = cur.rowcount
+        conn.commit()
+        cur.close()
+        if deletados > 0:
+            log.info(f"[LIMPEZA] {deletados} registro(s) antigo(s) removido(s) do banco")
+        else:
+            log.info("[LIMPEZA] Nenhum registro para remover hoje")
+    except Exception as e:
+        log.error(f"[LIMPEZA] Erro ao limpar banco: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
 # Inicializar banco e agendador ao subir o servidor
 init_db()
 _scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
 _scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila', max_instances=1)
+_scheduler.add_job(limpar_banco, 'cron', hour=3, minute=0, id='limpar_banco', max_instances=1)
 _scheduler.start()
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 
