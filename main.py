@@ -36,6 +36,9 @@ _anthropic_client = anthropic.Anthropic(
     timeout=300.0
 )
 
+# Maximo de tentativas antes de desistir de um job com erro
+MAX_TENTATIVAS = 3
+
 # Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
 try:
     DELAY_HORAS = float(os.environ.get('DELAY_HORAS', '0.083'))
@@ -68,10 +71,16 @@ def init_db():
                 dados         JSONB        NOT NULL,
                 agendado_para TIMESTAMP    NOT NULL,
                 processado    BOOLEAN      DEFAULT FALSE,
+                tentativas    INTEGER      DEFAULT 0,
                 criado_em     TIMESTAMP    DEFAULT NOW(),
                 processado_em TIMESTAMP,
                 erro          TEXT
             )
+        """)
+        # Adiciona coluna tentativas se a tabela ja existia sem ela
+        cur.execute("""
+            ALTER TABLE planos_agendados
+            ADD COLUMN IF NOT EXISTS tentativas INTEGER DEFAULT 0
         """)
         # Indice para o agendador nao fazer full-scan a cada minuto
         cur.execute("""
@@ -96,12 +105,13 @@ def verificar_fila():
         conn = get_db()
         cur  = conn.cursor()
         cur.execute("""
-            SELECT id, dados FROM planos_agendados
+            SELECT id, dados, tentativas FROM planos_agendados
             WHERE processado = FALSE AND agendado_para <= NOW()
+            AND tentativas < %s
             ORDER BY agendado_para
             LIMIT 5
             FOR UPDATE SKIP LOCKED
-        """)
+        """, (MAX_TENTATIVAS,))
         jobs = cur.fetchall()
         cur.close()
     except Exception as e:
@@ -111,9 +121,9 @@ def verificar_fila():
         if conn:
             conn.close()
 
-    for job_id, dados in jobs:
+    for job_id, dados, tentativas in jobs:
         nome = dados.get('nome', '?')
-        log.info(f"[FILA] Processando job {job_id} — {nome}")
+        log.info(f"[FILA] Processando job {job_id} — {nome} (tentativa {tentativas + 1}/{MAX_TENTATIVAS})")
         conn2 = None
         try:
             with app.app_context():
@@ -128,20 +138,25 @@ def verificar_fila():
             """, (job_id,))
             conn2.commit()
             cur2.close()
-            log.info(f"[FILA] Job {job_id} concluido")
+            log.info(f"[FILA] Job {job_id} concluido com sucesso")
 
         except Exception as e:
-            log.error(f"[FILA] Erro no job {job_id}: {traceback.format_exc()}")
+            nova_tentativa = tentativas + 1
+            desistir = nova_tentativa >= MAX_TENTATIVAS
+            log.error(f"[FILA] Erro no job {job_id} (tentativa {nova_tentativa}/{MAX_TENTATIVAS})"
+                      f"{' — desistindo' if desistir else ' — vai tentar de novo'}: {traceback.format_exc()}")
             conn3 = None
             try:
                 conn3 = get_db()
                 cur3  = conn3.cursor()
-                # processado=TRUE para nao ficar em loop eterno de reprocessamento
                 cur3.execute("""
                     UPDATE planos_agendados
-                    SET processado = TRUE, erro = %s, processado_em = NOW()
+                    SET tentativas    = %s,
+                        processado    = %s,
+                        erro          = %s,
+                        processado_em = CASE WHEN %s THEN NOW() ELSE NULL END
                     WHERE id = %s
-                """, (str(e)[:500], job_id))
+                """, (nova_tentativa, desistir, str(e)[:500], desistir, job_id))
                 conn3.commit()
                 cur3.close()
             except Exception:
