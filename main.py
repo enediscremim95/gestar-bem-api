@@ -136,7 +136,7 @@ def verificar_fila():
 
     for job_id, dados, tentativas in jobs:
         nome = dados.get('nome', '?')
-        log.info(f"[FILA] Processando job {job_id} — {nome} (tentativa {tentativas + 1}/{MAX_TENTATIVAS})")
+        log.info(f"[FILA] Processando job {job_id} — {nome} (tentativa {tentativas + 1}/{MAX_TENTATIVAS_TOTAL})")
         conn2 = None
         try:
             with app.app_context():
@@ -649,24 +649,26 @@ def gerar_plano():
             conn.close()
 
 
+MAX_TENTATIVAS_BG = 3  # tentativas no modo fallback (sem banco)
+
 def _processar_em_background(dados):
     """Executa processamento em thread separada (modo fallback sem banco).
-    Retenta automaticamente ate MAX_TENTATIVAS vezes com intervalo de 60s."""
+    Retenta automaticamente ate MAX_TENTATIVAS_BG vezes com intervalo de 60s."""
     nome  = dados.get('nome', 'Paciente')
     email = dados.get('email', '')
-    for tentativa in range(1, MAX_TENTATIVAS + 1):
+    for tentativa in range(1, MAX_TENTATIVAS_BG + 1):
         try:
-            log.info(f"[BG] Tentativa {tentativa}/{MAX_TENTATIVAS} para {nome}")
+            log.info(f"[BG] Tentativa {tentativa}/{MAX_TENTATIVAS_BG} para {nome}")
             with app.app_context():
                 _gerar_plano_interno(dados)
             log.info(f"[BG] Concluido com sucesso para {nome}")
             return
         except Exception:
-            log.error(f"[BG] Erro na tentativa {tentativa}/{MAX_TENTATIVAS} para {nome} ({email}): {traceback.format_exc()}")
-            if tentativa < MAX_TENTATIVAS:
+            log.error(f"[BG] Erro na tentativa {tentativa}/{MAX_TENTATIVAS_BG} para {nome} ({email}): {traceback.format_exc()}")
+            if tentativa < MAX_TENTATIVAS_BG:
                 log.info(f"[BG] Aguardando 60s antes da proxima tentativa...")
                 time.sleep(60)
-    log.error(f"[BG] Desistindo apos {MAX_TENTATIVAS} tentativas para {nome} ({email})")
+    log.error(f"[BG] Desistindo apos {MAX_TENTATIVAS_BG} tentativas para {nome} ({email})")
 
 
 def _gerar_plano_interno(dados):
@@ -1034,6 +1036,89 @@ def testar_email():
 @app.route('/')
 def index():
     return 'API Gestar Bem operando!', 200
+
+
+@app.route('/health')
+def health():
+    """
+    Checagem completa da saude do sistema.
+    Retorna 200 se tudo ok, 500 se qualquer componente critico falhar.
+    Util para monitoramento externo (Railway, UptimeRobot, etc.).
+    """
+    resultado = {
+        "status":     "ok",
+        "timestamp":  datetime.now(timezone.utc).isoformat(),
+        "componentes": {}
+    }
+    status_geral = 200
+
+    # ── 1. Banco de dados ───────────────────────────────────────────────────
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE processado = FALSE)                          AS pendentes,
+                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)       AS com_falha,
+                COUNT(*) FILTER (WHERE processado = TRUE
+                                 AND processado_em >= NOW() - INTERVAL '24 hours')  AS enviados_24h
+            FROM planos_agendados
+        """)
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        resultado["componentes"]["banco"] = {
+            "status":        "ok",
+            "pendentes":     row[0],
+            "com_falha":     row[1],
+            "enviados_24h":  row[2],
+        }
+    except Exception as e:
+        resultado["componentes"]["banco"] = {"status": "ERRO", "detalhe": str(e)[:200]}
+        resultado["status"] = "degradado"
+        status_geral = 500
+
+    # ── 2. Agendador (APScheduler) ──────────────────────────────────────────
+    try:
+        if _scheduler.running:
+            jobs = {j.id: str(j.next_run_time) for j in _scheduler.get_jobs()}
+            resultado["componentes"]["agendador"] = {"status": "ok", "jobs": jobs}
+        else:
+            resultado["componentes"]["agendador"] = {"status": "PARADO"}
+            resultado["status"] = "degradado"
+            status_geral = 500
+    except Exception as e:
+        resultado["componentes"]["agendador"] = {"status": "ERRO", "detalhe": str(e)[:200]}
+        resultado["status"] = "degradado"
+        status_geral = 500
+
+    # ── 3. Variaveis de ambiente criticas ────────────────────────────────────
+    vars_criticas = {
+        "ANTHROPIC_API_KEY": bool(os.environ.get('ANTHROPIC_API_KEY')),
+        "SENDGRID_API_KEY":  bool(os.environ.get('SENDGRID_API_KEY')),
+        "DATABASE_URL":      bool(os.environ.get('DATABASE_URL')),
+    }
+    vars_ausentes = [k for k, v in vars_criticas.items() if not v]
+    if vars_ausentes:
+        resultado["componentes"]["env_vars"] = {
+            "status":   "ERRO",
+            "ausentes": vars_ausentes
+        }
+        resultado["status"] = "degradado"
+        status_geral = 500
+    else:
+        resultado["componentes"]["env_vars"] = {"status": "ok", "todas_configuradas": True}
+
+    # ── 4. Configuracoes ─────────────────────────────────────────────────────
+    resultado["componentes"]["config"] = {
+        "delay_horas":           DELAY_HORAS,
+        "max_tentativas_total":  MAX_TENTATIVAS_TOTAL,
+        "tentativas_por_rodada": TENTATIVAS_POR_RODADA,
+        "intervalo_rodada_h":    INTERVALO_RODADA_H,
+        "email_alerta":          bool(os.environ.get('EMAIL_ALERTA')),
+    }
+
+    return jsonify(resultado), status_geral
 
 
 if __name__ == '__main__':
