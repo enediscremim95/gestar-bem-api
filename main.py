@@ -1267,10 +1267,9 @@ def painel():
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <style>
     body {{ font-family: 'Inter', sans-serif; background: #f8f4fb; margin: 0; padding: 0; }}
-    .header {{ background: #9B27AF; padding: 16px 28px; display: flex; align-items: center; gap: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }}
-    .header img {{ height: 48px; filter: brightness(0) invert(1); }}
-    .header .titulo {{ color: #fff; font-family: 'Playfair Display', serif; font-size: 22px; letter-spacing: 0.5px; }}
-    .header .sub-header {{ color: rgba(255,255,255,0.75); font-size: 12px; margin-top: 2px; }}
+    .header {{ background: #fff; padding: 16px 28px; display: flex; align-items: center; gap: 16px; box-shadow: 0 2px 8px rgba(155,39,175,.15); border-bottom: 3px solid #9B27AF; }}
+    .header .titulo {{ color: #9B27AF; font-family: 'Playfair Display', serif; font-size: 22px; letter-spacing: 0.5px; }}
+    .header .sub-header {{ color: #aaa; font-size: 12px; margin-top: 2px; }}
     .content {{ padding: 24px 28px; }}
     .sub {{ color: #888; font-size: 13px; margin-bottom: 24px; }}
     .cards {{ display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }}
