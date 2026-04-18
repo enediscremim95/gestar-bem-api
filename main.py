@@ -783,6 +783,19 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - Nunca tom clinico frio — sempre humanizado
    - Adapte o tom ao momento do trimestre (ver contexto acima)
 
+6. CONSISTENCIA DO PLANO — REGRA CRITICA:
+   ANTES de gerar o plano, defina o perfil alimentar da paciente:
+   - Se ela relatou intolerancia a lactose: NENHUMA refeicao pode ter leite, queijo, iogurte convencional
+   - Se ela relatou ser vegetariana ou vegana: NENHUMA refeicao pode ter carne, frango, peixe ou ovos (vegana)
+   - Se ela come carne/frango/peixe (onivora): TODAS as refeicoes devem ter proteina animal coerente
+   - NUNCA misture perfis: se o almoco tem frango, o jantar nao pode parecer vegetariano
+   - As substituicoes devem ser do MESMO perfil alimentar que a opcao principal
+   - Antes de finalizar, releia o plano completo e verifique:
+     * Todas as refeicoes tem proteina?
+     * Todas as refeicoes sao coerentes com o perfil alimentar definido?
+     * Nenhuma refeicao contradiz outra?
+   - Um plano inconsistente e INACEITAVEL e passa falta de profissionalismo
+
 INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automaticamente):
 
 ## Titulo principal → roxo com linha separadora
@@ -836,8 +849,9 @@ Para cada refeicao: opcao principal + MINIMO 5 opcoes de substituicao.
 Inclua porcoes em gramas em todas as opcoes. Proteina em TODAS as refeicoes.
 Refeicoes: Cafe da manha / Lanche da manha / Almoco / Lanche da tarde / Jantar / Ceia (se necessario).
 Adapte conforme horario de fome, rotina, intolerancia alimentar e desafios do trimestre.
-As substituicoes devem ser variadas: opcoes praticas, opcoes economicas, opcoes rapidas,
-opcoes para quem tem enjoo, opcoes vegetarianas — sempre mantendo a proteina e as calorias equivalentes.
+As substituicoes devem ser coerentes com o perfil alimentar da paciente (ver regra 6).
+NUNCA coloque substituicao vegetariana se o perfil da paciente e onivoro — mantenha proteina animal.
+NUNCA coloque carne/frango se a paciente for vegetariana ou tiver intolerancia informada.
 
 ---
 
@@ -855,7 +869,14 @@ lembretes dos pontos mais importantes do plano,
 e informacoes de contato da equipe Gestar Bem.
 
 Gere o plano COMPLETO, detalhado e personalizado. Minimo de 1800 palavras.
-Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores."""
+Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.
+
+ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA:
+1. O perfil alimentar e consistente do inicio ao fim? (se usou frango no almoco, o jantar tambem tem proteina animal?)
+2. Todas as refeicoes tem proteina em gramas especificadas?
+3. As intolerancias informadas foram respeitadas em TODAS as refeicoes e substituicoes?
+4. Nenhuma refeicao contradiz outra em termos de perfil alimentar?
+Se encontrar qualquer inconsistencia, corrija antes de entregar."""
 
     # ── Chamar o Claude ───────────────────────────────────────────────────────
     log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
