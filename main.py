@@ -254,7 +254,7 @@ def limpar_banco():
         cur.execute("""
             DELETE FROM planos_agendados
             WHERE processado = TRUE
-            AND criado_em < NOW() - INTERVAL '30 days'
+            AND criado_em < NOW() - INTERVAL '270 days'
         """)
         deletados = cur.rowcount
         conn.commit()
@@ -1253,6 +1253,7 @@ def painel():
             <td>{pr_str}</td>
             <td>{status}</td>
             <td style="font-size:11px;color:#c00">{erro_str}</td>
+            <td><a href="/painel/detalhes/{rid}?token={token_recebido}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
         </tr>"""
 
     agora = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')
@@ -1284,6 +1285,7 @@ def painel():
               box-shadow: 0 1px 6px rgba(155,39,175,.1); }}
     th    {{ background: #9B27AF; color: #fff; padding: 11px 14px;
               text-align: left; font-size: 13px; font-weight: 500; }}
+    .btn-voltar {{ display:inline-block;margin-bottom:20px;color:#9B27AF;text-decoration:none;font-size:14px; }}
     td    {{ padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #f0e6f6; }}
     tr:last-child td {{ border-bottom: none; }}
     tr:hover td {{ background: #fdf6ff; }}
@@ -1291,7 +1293,8 @@ def painel():
 </head>
 <body>
   <div class="header">
-    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem">
+    <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:56px;">
+    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
     <div>
       <div class="titulo">Painel de Controle</div>
       <div class="sub-header">Sistema Gestar Bem</div>
@@ -1299,6 +1302,16 @@ def painel():
   </div>
   <div class="content">
   <div class="sub">Atualizado em {agora} (UTC) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
+
+  <form method="GET" action="/painel/buscar" style="margin-bottom:28px;display:flex;gap:10px;align-items:center;">
+    <input type="hidden" name="token" value="{token_recebido}">
+    <input type="email" name="email" placeholder="Buscar paciente por email..." required
+           style="flex:1;max-width:400px;padding:10px 14px;border:1px solid #d8b4e8;border-radius:8px;font-size:14px;outline:none;">
+    <button type="submit"
+            style="background:#9B27AF;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;cursor:pointer;">
+      🔍 Buscar
+    </button>
+  </form>
 
   <div class="cards">
     <div class="card"><div class="num">{hoje}</div><div class="lab">Enviados hoje</div></div>
@@ -1404,6 +1417,193 @@ def health():
     }
 
     return jsonify(resultado), status_geral
+
+
+def _painel_html_base(token, conteudo_html):
+    """Retorna o HTML completo do painel com header padrao."""
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel — Gestar Bem</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body {{ font-family:'Inter',sans-serif; background:#f8f4fb; margin:0; padding:0; }}
+    .header {{ background:#9B27AF; padding:16px 28px; display:flex; align-items:center; gap:16px; box-shadow:0 2px 8px rgba(0,0,0,.15); }}
+    .header img {{ height:48px; }}
+    .header .titulo {{ color:#fff; font-family:'Playfair Display',serif; font-size:22px; }}
+    .header .sub-header {{ color:rgba(255,255,255,.75); font-size:12px; margin-top:2px; }}
+    .content {{ padding:24px 28px; }}
+    table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 6px rgba(155,39,175,.1); }}
+    th {{ background:#9B27AF; color:#fff; padding:11px 14px; text-align:left; font-size:13px; }}
+    td {{ padding:10px 14px; font-size:13px; border-bottom:1px solid #f0e6f6; vertical-align:top; }}
+    tr:last-child td {{ border-bottom:none; }}
+    tr:hover td {{ background:#fdf6ff; }}
+    .btn {{ display:inline-block; background:#9B27AF; color:#fff; padding:8px 18px; border-radius:8px; text-decoration:none; font-size:13px; }}
+    .btn-voltar {{ display:inline-block; margin-bottom:20px; color:#9B27AF; text-decoration:none; font-size:14px; }}
+    .label {{ color:#888; font-size:12px; }}
+    .valor {{ font-weight:500; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:56px;">
+    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
+    <div>
+      <div class="titulo">Painel de Controle</div>
+      <div class="sub-header">Sistema Gestar Bem</div>
+    </div>
+  </div>
+  <div class="content">
+    {conteudo_html}
+  </div>
+</body></html>"""
+
+
+@app.route('/painel/buscar')
+def painel_buscar():
+    """Busca historico de envios por email da paciente."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2>Acesso negado.</h2>', 403
+
+    email_busca = request.args.get('email', '').strip().lower()
+    if not email_busca:
+        return painel()
+
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT id,
+                   dados->>'nome'               AS nome,
+                   dados->>'email'              AS email,
+                   dados->>'semanas_gestacao'   AS semanas,
+                   dados->>'peso_atual'         AS peso,
+                   dados->>'complicacoes'       AS complicacoes,
+                   dados->>'sintomas'           AS sintomas,
+                   dados->>'medicamentos'       AS medicamentos,
+                   processado,
+                   tentativas,
+                   criado_em
+            FROM planos_agendados
+            WHERE LOWER(dados->>'email') = %s
+            ORDER BY criado_em ASC
+        """, (email_busca,))
+        registros = cur.fetchall()
+        cur.close()
+    except Exception as e:
+        return f'<h2>Erro: {e}</h2>', 500
+    finally:
+        if conn: conn.close()
+
+    if not registros:
+        conteudo = f"""
+        <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
+        <h3 style="color:#9B27AF">Nenhum registro encontrado para: {email_busca}</h3>"""
+        return _painel_html_base(token_recebido, conteudo), 200
+
+    nome_paciente = registros[-1][1] or email_busca
+    peso_inicial  = registros[0][4]  or '?'
+    peso_atual    = registros[-1][4] or '?'
+
+    linhas = ''
+    for i, reg in enumerate(registros):
+        rid, nome, email, semanas, peso, complic, sintomas, medic, processado, tentativas, criado_em = reg
+        status   = '✅' if processado else f'⚠️ {tentativas}x'
+        data_str = criado_em.strftime('%d/%m/%Y') if criado_em else '-'
+        tri      = 'III' if semanas and int(''.join(filter(str.isdigit, semanas or '0')) or '0') > 26 else ('II' if semanas and int(''.join(filter(str.isdigit, semanas or '0')) or '0') > 13 else 'I')
+        linhas  += f"""
+        <tr>
+          <td>{data_str}</td>
+          <td>{semanas or '-'} sem &nbsp;<span style="color:#9B27AF;font-size:11px">{tri}º tri</span></td>
+          <td>{peso or '-'} kg</td>
+          <td style="font-size:12px">{(complic or '-')[:60]}</td>
+          <td style="font-size:12px">{(sintomas or '-')[:60]}</td>
+          <td style="font-size:12px">{(medic or '-')[:40]}</td>
+          <td>{status}</td>
+          <td><a href="/painel/detalhes/{rid}?token={token_recebido}" title="Ver detalhes" style="color:#9B27AF;font-size:18px;text-decoration:none;">👁</a></td>
+        </tr>"""
+
+    conteudo = f"""
+    <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
+    <h2 style="color:#9B27AF;margin-bottom:4px">🌸 {nome_paciente}</h2>
+    <p style="color:#888;font-size:13px;margin-top:0">{email_busca} &nbsp;|&nbsp; {len(registros)} envio(s) &nbsp;|&nbsp; Peso inicial: {peso_inicial}kg → Atual: {peso_atual}kg</p>
+    <table>
+      <thead><tr>
+        <th>Data</th><th>Semanas</th><th>Peso</th><th>Complicações</th><th>Sintomas</th><th>Medicamentos</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>{linhas}</tbody>
+    </table>"""
+
+    return _painel_html_base(token_recebido, conteudo), 200
+
+
+@app.route('/painel/detalhes/<int:job_id>')
+def painel_detalhes(job_id):
+    """Exibe todos os dados de um envio especifico."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2>Acesso negado.</h2>', 403
+
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("SELECT dados, criado_em, processado, tentativas, erro FROM planos_agendados WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+        cur.close()
+    except Exception as e:
+        return f'<h2>Erro: {e}</h2>', 500
+    finally:
+        if conn: conn.close()
+
+    if not row:
+        return '<h2>Registro nao encontrado.</h2>', 404
+
+    dados, criado_em, processado, tentativas, erro = row
+    nome  = dados.get('nome', '-')
+    email = dados.get('email', '-')
+
+    CAMPOS_LABELS = [
+        ('nome', 'Nome'), ('email', 'Email'), ('pais', 'País'),
+        ('idade', 'Idade'), ('altura', 'Altura'), ('semanas_gestacao', 'Semanas de gestação'),
+        ('peso_atual', 'Peso atual'), ('peso_antes', 'Peso antes da gestação'),
+        ('peso_primeira_consulta', 'Peso 1ª consulta'), ('complicacoes', 'Complicações'),
+        ('medicamentos', 'Medicamentos'), ('suplementos', 'Suplementos'),
+        ('gravidez_planejada', 'Gravidez planejada'), ('sintomas', 'Sintomas'),
+        ('outros_sintomas', 'Outros sintomas'), ('sono', 'Qualidade do sono'),
+        ('medo_gravidez', 'Medos/preocupações'), ('liberado_exercicio', 'Liberada p/ exercícios'),
+        ('nivel_exercicio', 'Nível de exercício'), ('periodo_exercicio', 'Período preferido'),
+        ('limitacao_exercicio', 'Limitações físicas'), ('rotina_alimentacao', 'Rotina alimentar'),
+        ('hidratacao', 'Hidratação atual'), ('intolerancia', 'Intolerância alimentar'),
+        ('horario_fome', 'Horário de mais fome'), ('observacoes', 'Observações'),
+    ]
+
+    linhas = ''
+    for chave, label in CAMPOS_LABELS:
+        valor = dados.get(chave, '')
+        if valor:
+            linhas += f'<tr><td class="label">{label}</td><td class="valor">{valor}</td></tr>'
+
+    status  = '✅ Enviado com sucesso' if processado and not erro else (f'⚠️ {tentativas} tentativa(s)' if not processado else f'❌ Falhou após {tentativas}x')
+    data_str = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
+    email_enc = dados.get('email', '')
+    voltar_busca = f"/painel/buscar?token={token_recebido}&email={email_enc}"
+
+    conteudo = f"""
+    <a href="{voltar_busca}" class="btn-voltar">← Voltar ao histórico de {nome}</a>
+    <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
+    <p style="color:#888;font-size:13px;margin-top:0">{data_str} &nbsp;|&nbsp; {status}</p>
+    <table style="max-width:700px">
+      <tbody>{linhas}</tbody>
+    </table>
+    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro + '</p>' if erro else ''}"""
+
+    return _painel_html_base(token_recebido, conteudo), 200
 
 
 if __name__ == '__main__':
