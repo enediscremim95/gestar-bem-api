@@ -1296,7 +1296,7 @@ def painel():
     <div style="background:#fff;border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
       <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:52px;">
     </div>
-    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
+    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;">
     <div>
       <div class="titulo">Painel de Controle</div>
       <div class="sub-header">Sistema Gestar Bem</div>
@@ -1431,10 +1431,9 @@ def _painel_html_base(token, conteudo_html):
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <style>
     body {{ font-family:'Inter',sans-serif; background:#f8f4fb; margin:0; padding:0; }}
-    .header {{ background:#9B27AF; padding:16px 28px; display:flex; align-items:center; gap:16px; box-shadow:0 2px 8px rgba(0,0,0,.15); }}
-    .header img {{ height:48px; }}
-    .header .titulo {{ color:#fff; font-family:'Playfair Display',serif; font-size:22px; }}
-    .header .sub-header {{ color:rgba(255,255,255,.75); font-size:12px; margin-top:2px; }}
+    .header {{ background:#fff; padding:16px 28px; display:flex; align-items:center; gap:16px; box-shadow:0 2px 8px rgba(155,39,175,.15); border-bottom:3px solid #9B27AF; }}
+    .header .titulo {{ color:#9B27AF; font-family:'Playfair Display',serif; font-size:22px; }}
+    .header .sub-header {{ color:#aaa; font-size:12px; margin-top:2px; }}
     .content {{ padding:24px 28px; }}
     table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 6px rgba(155,39,175,.1); }}
     th {{ background:#9B27AF; color:#fff; padding:11px 14px; text-align:left; font-size:13px; }}
@@ -1452,7 +1451,7 @@ def _painel_html_base(token, conteudo_html):
     <div style="background:#fff;border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
       <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:52px;">
     </div>
-    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;filter:brightness(0) invert(1);">
+    <img src="/imagens/gestar_bem_svg.png" alt="Gestar Bem" style="height:44px;">
     <div>
       <div class="titulo">Painel de Controle</div>
       <div class="sub-header">Sistema Gestar Bem</div>
