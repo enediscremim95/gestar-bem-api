@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Cliente Anthropic — criado uma vez na inicializacao do servidor
-# timeout=120s: se o Claude nao responder em 2 min, a thread nao fica pendurada para sempre
+# timeout=300s: mesmo padrao do gunicorn, evita thread pendurada para sempre
 _anthropic_client = anthropic.Anthropic(
     api_key=os.environ.get('ANTHROPIC_API_KEY'),
     timeout=300.0
@@ -241,7 +241,7 @@ Equipe Gestar Bem 🌸"""
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             log.info(f"Email enviado via SendGrid para {destinatario} com {len(anexos)} PDF(s) — status {resp.status}")
     except urllib.error.HTTPError as e:
         corpo_erro = e.read().decode('utf-8', errors='ignore')
@@ -890,18 +890,10 @@ Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.""
 
     # ── Enviar email ──────────────────────────────────────────────────────────
     # email ja validado no inicio da funcao — sempre presente aqui
-    email_enviado = False
-    email_erro    = ''
-
-    try:
-        enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
-        email_enviado = True
-        log.info(f"Email enviado para {email} — PDF nutricao + {len(links_treino)} link(s) de treino")
-    except Exception as e:
-        email_erro = str(e)
-        log.error(f"Erro ao enviar email: {e}")
-
-    log.info(f"[BG] Concluido para {nome} — email_enviado={email_enviado} erro='{email_erro}'")
+    # NAO capturamos a excecao aqui: se o email falhar, o erro sobe para
+    # verificar_fila() que vai retentar o job automaticamente (ate MAX_TENTATIVAS)
+    enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
+    log.info(f"[INTERNO] Concluido para {nome} — email enviado para {email} com {len(links_treino)} link(s) de treino")
 
 
 # ── Endpoint de teste de email ────────────────────────────────────────────────
