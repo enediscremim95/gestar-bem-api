@@ -1038,6 +1038,13 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
      * Nenhuma refeicao contradiz outra?
    - Um plano inconsistente e INACEITAVEL e passa falta de profissionalismo
 
+7. EXERCICIOS — REGRA ABSOLUTA:
+   NUNCA gere secao, paragrafo ou qualquer orientacao sobre exercicios fisicos neste PDF.
+   Os planos de treino sao enviados separadamente como arquivos proprios (academia e casa).
+   Os dados de exercicio informados (nivel, periodo, limitacoes) servem APENAS para
+   ajustar horarios e composicao das refeicoes (ex: pre-treino, pos-treino).
+   Qualquer mencao a exercicios fora do contexto nutricional e PROIBIDA neste documento.
+
 INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automaticamente):
 
 ## Titulo principal → roxo com linha separadora
