@@ -270,11 +270,138 @@ def limpar_banco():
             conn.close()
 
 
+def check_diario():
+    """Roda todo dia as 10h — verifica saude do sistema e envia relatorio por email."""
+    log.info("[CHECK] Iniciando check diario do sistema")
+    alertas   = []
+    linhas    = []
+    emoji_geral = "✅"
+
+    # ── 1. Banco de dados ──────────────────────────────────────────────────
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE processado = FALSE)                         AS pendentes,
+                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)      AS com_falha,
+                COUNT(*) FILTER (WHERE processado = TRUE
+                                 AND processado_em >= NOW() - INTERVAL '24 hours') AS enviados_24h
+            FROM planos_agendados
+        """)
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        pendentes    = row[0]
+        com_falha    = row[1]
+        enviados_24h = row[2]
+        linhas.append(f"Banco: OK | Enviados hoje: {enviados_24h} | Pendentes: {pendentes} | Com falha: {com_falha}")
+        if com_falha > 0:
+            alertas.append(f"⚠️ {com_falha} plano(s) com falha — verificar logs no Railway")
+            emoji_geral = "⚠️"
+    except Exception as e:
+        linhas.append(f"Banco: ERRO — {str(e)[:100]}")
+        alertas.append("🔴 URGENTE: banco de dados inacessivel")
+        emoji_geral = "🔴"
+        enviados_24h = pendentes = com_falha = "?"
+
+    # ── 2. Agendador ───────────────────────────────────────────────────────
+    if _scheduler.running:
+        linhas.append("Agendador: rodando")
+    else:
+        linhas.append("Agendador: PARADO")
+        alertas.append("🔴 URGENTE: agendador parou — nenhum plano sera processado")
+        emoji_geral = "🔴"
+
+    # ── 3. SendGrid — uso do dia ───────────────────────────────────────────
+    try:
+        sg_key = os.environ.get('SENDGRID_API_KEY', '')
+        hoje   = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        req_sg = urllib.request.Request(
+            f"https://api.sendgrid.com/v3/stats?start_date={hoje}&end_date={hoje}",
+            headers={"Authorization": f"Bearer {sg_key}"},
+            method="GET"
+        )
+        with urllib.request.urlopen(req_sg, timeout=15) as resp:
+            stats     = json.loads(resp.read().decode())
+            emails_sg = stats[0]['stats'][0]['metrics']['emails_sent'] if stats and stats[0].get('stats') else 0
+        pct = round(emails_sg / 100 * 100)
+        linhas.append(f"SendGrid: {emails_sg}/100 emails hoje ({pct}%)")
+        if emails_sg >= 80:
+            alertas.append(f"⚠️ SendGrid: {emails_sg}/100 emails usados — proximo do limite diario")
+            if emoji_geral == "✅":
+                emoji_geral = "⚠️"
+    except Exception as e:
+        linhas.append(f"SendGrid: nao verificado ({str(e)[:80]})")
+
+    # ── 4. Anthropic — chave valida ────────────────────────────────────────
+    try:
+        _anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}]
+        )
+        linhas.append("Anthropic API: OK")
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'credit' in err_str or 'billing' in err_str or 'quota' in err_str:
+            linhas.append("Anthropic API: SEM CREDITO")
+            alertas.append("🔴 URGENTE: credito Anthropic esgotado — recarregar em console.anthropic.com")
+            emoji_geral = "🔴"
+        elif '401' in err_str or 'invalid' in err_str or 'auth' in err_str:
+            linhas.append("Anthropic API: CHAVE INVALIDA")
+            alertas.append("🔴 URGENTE: ANTHROPIC_API_KEY invalida — verificar no Railway")
+            emoji_geral = "🔴"
+        else:
+            linhas.append(f"Anthropic API: erro ({str(e)[:80]})")
+
+    # ── 5. Montar e enviar relatorio ───────────────────────────────────────
+    data_hora = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')
+    situacao  = "tudo certo" if not alertas else "\n".join(alertas)
+    acao      = "nenhuma"    if not alertas else "ver alertas acima"
+
+    corpo = f"""{emoji_geral} CHECK DIARIO — Gestar Bem | {data_hora}
+
+{chr(10).join(linhas)}
+
+Situacao: {situacao}
+Acao necessaria: {acao}
+
+---
+https://web-production-94437.up.railway.app/health"""
+
+    # Enviar para todos os destinatarios de alerta
+    sg_key2    = os.environ.get('SENDGRID_API_KEY', '')
+    remetente  = 'planosgestarbem@gmail.com'
+    dest_str   = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
+    destinatarios = [e.strip() for e in dest_str.split(',') if e.strip()]
+    assunto    = f"{emoji_geral} Check diario Gestar Bem — {data_hora}"
+
+    payload = {
+        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
+        "subject": assunto,
+        "content": [{"type": "text/plain", "value": corpo}],
+    }
+    req = urllib.request.Request(
+        "https://api.sendgrid.com/v3/mail/send",
+        data=json.dumps(payload).encode('utf-8'),
+        headers={"Authorization": f"Bearer {sg_key2}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            log.info(f"[CHECK] Relatorio enviado para {destinatarios} — {emoji_geral} {situacao}")
+    except Exception as ex:
+        log.error(f"[CHECK] Falha ao enviar relatorio: {ex}")
+
+
 # Inicializar banco e agendador ao subir o servidor
 init_db()
 _scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
 _scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila', max_instances=1)
-_scheduler.add_job(limpar_banco, 'cron', hour=3, minute=0, id='limpar_banco', max_instances=1)
+_scheduler.add_job(limpar_banco,   'cron', hour=3,  minute=0,  id='limpar_banco',   max_instances=1)
+_scheduler.add_job(check_diario,   'cron', hour=10, minute=7,  id='check_diario',   max_instances=1)
 _scheduler.start()
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 
