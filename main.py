@@ -36,8 +36,15 @@ _anthropic_client = anthropic.Anthropic(
     timeout=300.0
 )
 
-# Maximo de tentativas antes de desistir de um job com erro
-MAX_TENTATIVAS = 3
+# Tentativas por rodada e numero de rodadas antes de desistir
+# Total: 3 rodadas x 3 tentativas = 9 tentativas ao longo de ~6 horas
+TENTATIVAS_POR_RODADA = 3
+MAX_RODADAS           = 3
+MAX_TENTATIVAS_TOTAL  = TENTATIVAS_POR_RODADA * MAX_RODADAS  # 9
+INTERVALO_RODADA_H    = 2  # horas de espera entre rodadas
+
+# Email de alerta quando um job falha definitivamente
+EMAIL_ALERTA = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
 
 # Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
 try:
@@ -77,10 +84,14 @@ def init_db():
                 erro          TEXT
             )
         """)
-        # Adiciona coluna tentativas se a tabela ja existia sem ela
+        # Adiciona colunas novas se a tabela ja existia sem elas
         cur.execute("""
             ALTER TABLE planos_agendados
             ADD COLUMN IF NOT EXISTS tentativas INTEGER DEFAULT 0
+        """)
+        cur.execute("""
+            ALTER TABLE planos_agendados
+            ADD COLUMN IF NOT EXISTS proxima_tentativa TIMESTAMP
         """)
         # Indice para o agendador nao fazer full-scan a cada minuto
         cur.execute("""
@@ -106,12 +117,14 @@ def verificar_fila():
         cur  = conn.cursor()
         cur.execute("""
             SELECT id, dados, tentativas FROM planos_agendados
-            WHERE processado = FALSE AND agendado_para <= NOW()
+            WHERE processado = FALSE
+            AND agendado_para <= NOW()
             AND tentativas < %s
+            AND (proxima_tentativa IS NULL OR proxima_tentativa <= NOW())
             ORDER BY agendado_para
             LIMIT 5
             FOR UPDATE SKIP LOCKED
-        """, (MAX_TENTATIVAS,))
+        """, (MAX_TENTATIVAS_TOTAL,))
         jobs = cur.fetchall()
         cur.close()
     except Exception as e:
@@ -141,24 +154,42 @@ def verificar_fila():
             log.info(f"[FILA] Job {job_id} concluido com sucesso")
 
         except Exception as e:
-            nova_tentativa = tentativas + 1
-            desistir = nova_tentativa >= MAX_TENTATIVAS
-            log.error(f"[FILA] Erro no job {job_id} (tentativa {nova_tentativa}/{MAX_TENTATIVAS})"
-                      f"{' — desistindo' if desistir else ' — vai tentar de novo'}: {traceback.format_exc()}")
+            nova_tentativa  = tentativas + 1
+            desistir        = nova_tentativa >= MAX_TENTATIVAS_TOTAL
+            completou_rodada = (nova_tentativa % TENTATIVAS_POR_RODADA == 0) and not desistir
+
+            if desistir:
+                status_log = "DESISTINDO definitivamente — enviando alerta"
+                proxima    = None
+            elif completou_rodada:
+                proxima    = datetime.now(timezone.utc) + timedelta(hours=INTERVALO_RODADA_H)
+                status_log = f"rodada completa — proxima tentativa em {INTERVALO_RODADA_H}h"
+            else:
+                proxima    = None
+                status_log = "vai tentar de novo em ~1 min"
+
+            log.error(f"[FILA] Erro no job {job_id} (tentativa {nova_tentativa}/{MAX_TENTATIVAS_TOTAL}) "
+                      f"— {status_log}: {traceback.format_exc()}")
+
             conn3 = None
             try:
                 conn3 = get_db()
                 cur3  = conn3.cursor()
                 cur3.execute("""
                     UPDATE planos_agendados
-                    SET tentativas    = %s,
-                        processado    = %s,
-                        erro          = %s,
-                        processado_em = CASE WHEN %s THEN NOW() ELSE NULL END
+                    SET tentativas        = %s,
+                        processado        = %s,
+                        erro              = %s,
+                        proxima_tentativa = %s,
+                        processado_em     = CASE WHEN %s THEN NOW() ELSE NULL END
                     WHERE id = %s
-                """, (nova_tentativa, desistir, str(e)[:500], desistir, job_id))
+                """, (nova_tentativa, desistir, str(e)[:500], proxima, desistir, job_id))
                 conn3.commit()
                 cur3.close()
+
+                if desistir:
+                    _enviar_alerta_falha(job_id, dados, nova_tentativa, str(e))
+
             except Exception:
                 pass
             finally:
@@ -167,6 +198,51 @@ def verificar_fila():
         finally:
             if conn2:
                 conn2.close()
+
+
+def _enviar_alerta_falha(job_id, dados, tentativas, erro):
+    """Envia email de alerta para os responsaveis quando um job falha definitivamente."""
+    sg_key    = os.environ.get('SENDGRID_API_KEY', '')
+    remetente = 'planosgestarbem@gmail.com'
+    # Destinatarios separados por virgula na variavel EMAIL_ALERTA
+    destinatarios_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
+    destinatarios = [e.strip() for e in destinatarios_str.split(',') if e.strip()]
+
+    if not sg_key:
+        log.error("[ALERTA] SENDGRID_API_KEY nao configurado — nao foi possivel enviar alerta")
+        return
+
+    nome  = dados.get('nome', '?')
+    email = dados.get('email', '?')
+
+    corpo = f"""⚠️ ALERTA — Plano nao entregue após {tentativas} tentativas
+
+Paciente: {nome}
+Email: {email}
+Job ID: {job_id}
+Tentativas: {tentativas}
+Ultimo erro: {erro[:300]}
+
+Acesse o painel do Railway para verificar os logs e reprocessar manualmente se necessario."""
+
+    payload = {
+        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
+        "subject": f"⚠️ FALHA: Plano de {nome} nao entregue",
+        "content": [{"type": "text/plain", "value": corpo}],
+    }
+
+    req = urllib.request.Request(
+        "https://api.sendgrid.com/v3/mail/send",
+        data=json.dumps(payload).encode('utf-8'),
+        headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            log.info(f"[ALERTA] Email de falha enviado para {destinatarios} — job {job_id} ({nome})")
+    except Exception as ex:
+        log.error(f"[ALERTA] Falha ao enviar alerta: {ex}")
 
 
 # Inicializar banco e agendador ao subir o servidor
