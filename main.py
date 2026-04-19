@@ -1072,6 +1072,36 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    ajustar horarios e composicao das refeicoes (ex: pre-treino, pos-treino).
    Qualquer mencao a exercicios fora do contexto nutricional e PROIBIDA neste documento.
 
+8. ALIMENTOS ESSENCIAIS POR TRIMESTRE — OBRIGATORIOS NO CARDAPIO:
+   Estes alimentos NAO PODEM FALTAR no plano alimentar, exceto se a paciente relatou
+   alergia, intolerancia ou pediu para nao incluir. Adapte para o perfil alimentar dela
+   (ex: para vegetarianas, substitua carnes/ovos por equivalentes vegetais de igual valor nutricional).
+
+   1o TRIMESTRE — obrigatorios:
+   Folhosos verde-escuros (espinafre, couve, brocolis, rucula), ovos, carnes magras (bovina, frango),
+   figado, frutas ricas em vitamina C (laranja, acerola, kiwi, morango), abacate,
+   peixes seguros (sardinha, salmao, tilapia), oleaginosas (castanha-do-para, nozes, amendoas),
+   leguminosas (feijao, lentilha, grao-de-bico), laticinios ou fontes de calcio (leite, iogurte, queijo pasteurizado).
+
+   2o TRIMESTRE — obrigatorios:
+   Folhosos verde-escuros (couve, espinafre, brocolis, rucula), ovos, figado e coracao de galinha,
+   carnes magras (bovina, frango), peixes seguros (tilapia, sardinha, salmao),
+   frutas variadas (laranja, banana, maca, mamao, frutas vermelhas),
+   leguminosas (feijao, lentilha, grao-de-bico), oleaginosas (castanha-do-para, nozes, amendoas),
+   abacate, laticinios ou fontes de calcio (leite, iogurte, queijo pasteurizado),
+   cereais integrais (aveia, arroz integral, quinoa), sementes (chia, linhaca),
+   tuberculos e raizes (batata-doce, mandioca, inhame),
+   verduras e legumes variados (cenoura, abobrinha, beterraba, tomate), azeite de oliva.
+
+   3o TRIMESTRE — obrigatorios:
+   Folhosos verde-escuros (couve, espinafre, brocolis), ovos, figado e coracao de galinha,
+   carnes magras (bovina, frango), peixes seguros (tilapia, sardinha, salmao),
+   leguminosas (feijao, lentilha, grao-de-bico), laticinios ou fontes de calcio (leite, iogurte, queijo pasteurizado),
+   frutas (banana, pera, maca, mamao), frutas ricas em vitamina C (laranja, acerola, kiwi),
+   oleaginosas (castanha-do-para, nozes, amendoas), sementes (chia, linhaca),
+   cereais integrais (aveia, arroz integral), tuberculos (batata-doce, mandioca, inhame),
+   verduras e legumes variados, azeite de oliva, agua de coco.
+
 INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automaticamente):
 
 ## Titulo principal → roxo com linha separadora
