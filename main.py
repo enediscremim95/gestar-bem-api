@@ -848,6 +848,9 @@ def _gerar_plano_interno(dados):
     observacoes        = dados.get('observacoes', '')
     exames_anexo       = dados.get('exames_anexo', '')
     usa_insulina       = dados.get('usa_insulina', '')
+    quadros_clinicos   = dados.get('quadros_clinicos', '')
+    alergia_alimentos  = dados.get('alergia_alimentos', '')
+    preferencia        = dados.get('preferencia', '')
 
     # Calculos clinicos automaticos
     calculos = calcular_dados_clinicos(dados)
@@ -972,10 +975,12 @@ DADOS DA GESTANTE:
 - Hidratacao atual: {hidratacao}
 - Intolerancia alimentar: {intolerancia}
 - Nivel da intolerancia: {nivel_intolerancia}
+- Alergia a alimentos: {alergia_alimentos}
 - Horario de mais fome: {horario_fome}
 - Observacoes adicionais: {observacoes}
-- Exames / arquivos enviados: {exames_anexo}
+- Quadros clinicos relatados pela paciente: {quadros_clinicos}
 - Usa insulina para diabetes gestacional: {usa_insulina}
+- Preferencia da paciente: {preferencia}
 
 {bloco_calculos}
 
@@ -983,11 +988,21 @@ DADOS DA GESTANTE:
 
 PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
 
-1. ANALISE DE EXAMES (aplique estas condutas se houver valores informados):
-   - Glicose >= 92 mg/dL → Diabetes gestacional: plano com controle glicemico rigoroso,
-     reducao de carboidratos simples, ceia obrigatoria, orientar monitoramento com glicosimetro
-   - Glicose 90-91 mg/dL → Risco: dieta preventiva com controle de carboidratos simples
-   - Glicose < 90 mg/dL → Normal: plano flexivel
+1. ANALISE DE EXAMES E QUADROS CLINICOS:
+   DETECCAO DE DIABETES GESTACIONAL: aplique as condutas de DG se QUALQUER uma das condicoes abaixo for verdadeira:
+   a) "DIABETES GESTACIONAL" aparece no campo "Quadros clinicos relatados pela paciente"
+   b) Glicose em jejum >= 92 mg/dL (se valor informado em texto)
+   Se DG confirmado: plano com controle glicemico rigoroso, reducao de carboidratos simples,
+   ceia obrigatoria, alertas de medicao em vermelho (ver regra especial DG).
+   - Glicose 90-91 mg/dL (se valor informado) → Risco: dieta preventiva com controle de carboidratos simples
+   - Glicose < 90 mg/dL (se valor informado) → Normal: plano flexivel
+
+   OUTROS QUADROS CLINICOS: aplique condutas especificas para qualquer condicao informada:
+   - PRE-ECLAMPSIA / HIPERTENSAO → reducao de sodio, alimentos anti-inflamatorios, hidratacao
+   - ANEMIA → ferro heme + vitamina C + suplemento de ferro (ver protocolo)
+   - OBESIDADE / SOBREPESO → deficit calorico controlado e seguro (nunca abaixo do minimo gestacional)
+   - HIPOTIREOIDISMO → considerar alimentos que suportam funcao tireoidiana; evitar excesso de brassicas cruas
+   - SOP / ENDOMETRIOSE → anti-inflamatorio, baixo glicemico
    - Vitamina D < 50 → Indicar suplementacao (ver protocolo de suplementacao) + alimentos fontes (sardinha, ovos, funghi)
    - Vitamina D >= 50 → NAO indicar suplemento de vitamina D
    - B12 < 600 → Indicar suplementacao (ver protocolo) — especialmente se vegetariana/vegana
@@ -1063,6 +1078,8 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
      * Todas as refeicoes tem proteina?
      * Todas as refeicoes sao coerentes com o perfil alimentar definido?
      * Nenhuma refeicao contradiz outra?
+   - Se ela relatou ALERGIA a algum alimento: esse alimento e COMPLETAMENTE PROIBIDO em todo o plano,
+     inclusive nas substituicoes. Alergia e diferente de intolerancia — risco de reacao grave.
    - Um plano inconsistente e INACEITAVEL e passa falta de profissionalismo
 
 7. EXERCICIOS — REGRA ABSOLUTA:
