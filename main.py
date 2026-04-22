@@ -663,55 +663,115 @@ def calcular_dados_clinicos(dados):
 
         manutencao = tmb * fator
 
-        # Peso ideal estimado (formula 22 x altura^2) para definir estrategia
-        altura_m   = alt / 100
-        peso_ideal = 22 * (altura_m ** 2)
-        excesso    = peso - peso_ideal
+        # IMC e categoria de peso
+        altura_m      = alt / 100
+        imc           = peso / (altura_m ** 2)
+        peso_ideal    = 22 * (altura_m ** 2)  # IMC 22 = centro da faixa ideal
 
-        # Estrategia calorica
-        if excesso > 5:
-            # Sobrepeso/obesidade: deficit de 300-500 kcal
-            calorias_alvo = manutencao - 400
-            estrategia = (
-                f"SOBREPESO/OBESIDADE — deficit de 400 kcal. "
-                f"Peso atual {peso:.1f}kg, peso ideal estimado {peso_ideal:.1f}kg "
-                f"(excesso de {excesso:.1f}kg). Objetivo: emagrecimento controlado e seguro."
-            )
+        if imc < 18.5:
+            categoria_peso = "ABAIXO_DO_PESO"
+        elif imc <= 24.9:
+            categoria_peso = "IDEAL"
         else:
+            categoria_peso = "SOBREPESO_OBESIDADE"
+
+        # Estrategia calorica por categoria de IMC e trimestre
+        if categoria_peso == "ABAIXO_DO_PESO":
+            calorias_alvo = manutencao + 150
+            estrategia = (
+                f"ABAIXO DO PESO (IMC {imc:.1f}) — acrescimo de 150 kcal nos 3 trimestres. "
+                f"Peso atual {peso:.1f}kg, peso ideal estimado {peso_ideal:.1f}kg. "
+                f"Objetivo: ganho de peso gradual e seguro."
+            )
+
+        elif categoria_peso == "SOBREPESO_OBESIDADE":
             if trimestre == "I":
-                calorias_alvo = manutencao
-                estrategia = "PESO ADEQUADO — 1o trimestre: manutencao de peso."
+                calorias_alvo = max(manutencao - 450, 1500)
+                estrategia = (
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 1o trimestre: deficit de 450 kcal "
+                    f"(range 300-600), minimo 1.500 kcal. "
+                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                )
             elif trimestre == "II":
-                calorias_alvo = manutencao + 340
-                estrategia = "PESO ADEQUADO — 2o trimestre: +340 kcal acima da manutencao."
+                calorias_alvo = max(manutencao - 275, 1600)
+                estrategia = (
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 2o trimestre: deficit de 275 kcal "
+                    f"(range 200-350), minimo 1.600 kcal. "
+                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                )
             else:
-                calorias_alvo = manutencao + 450
-                estrategia = "PESO ADEQUADO — 3o trimestre: +450 kcal acima da manutencao."
+                calorias_alvo = max(manutencao - 275, 1500)
+                estrategia = (
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 3o trimestre: deficit de 275 kcal "
+                    f"(range 200-350), minimo 1.500 kcal. "
+                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                )
 
-        # Macronutrientes (35% prot / 40% carb / 25% gord)
-        prot_kcal = calorias_alvo * 0.35
-        carb_kcal = calorias_alvo * 0.40
-        gord_kcal = calorias_alvo * 0.25
-        prot_g    = prot_kcal / 4
-        carb_g    = carb_kcal / 4
-        gord_g    = gord_kcal / 9
+        else:  # IDEAL
+            if trimestre == "I":
+                calorias_alvo = manutencao - 175
+                estrategia = (
+                    f"PESO IDEAL (IMC {imc:.1f}) — 1o trimestre: leve deficit de 175 kcal "
+                    f"(range 150-200). Objetivo: manutencao de peso."
+                )
+            elif trimestre == "II":
+                calorias_alvo = manutencao + 175
+                estrategia = (
+                    f"PESO IDEAL (IMC {imc:.1f}) — 2o trimestre: acrescimo de 175 kcal "
+                    f"(range 150-200). Objetivo: ganho de 3 a 3,5 kg."
+                )
+            else:
+                calorias_alvo = manutencao + 175
+                estrategia = (
+                    f"PESO IDEAL (IMC {imc:.1f}) — 3o trimestre: acrescimo de 175 kcal "
+                    f"(range 150-200). Objetivo: ganho de 3,5 a 4 kg."
+                )
 
-        # Hidratacao (1o e 2o tri: peso x 35ml | 3o tri: peso x 40ml)
-        agua_ml   = peso * 40 if trimestre == "III" else peso * 35
-        agua_l    = agua_ml / 1000
+        # Detectar DG para ajuste de macros (40% prot / 35% carb / 25% gord)
+        quadros    = str(dados.get('quadros_clinicos', '')).lower()
+        glicose_rw = dados.get('exame_glicose', '')
+        tem_dg     = 'diabetes gestacional' in quadros
+        if not tem_dg and glicose_rw:
+            try:
+                if _extrair_numero(glicose_rw) >= 92:
+                    tem_dg = True
+            except Exception:
+                pass
+
+        if tem_dg:
+            prot_pct  = 0.40; carb_pct = 0.35; gord_pct = 0.25
+            macro_label = "DG/Percentil baixo: 40% prot / 35% carb / 25% gord"
+        else:
+            prot_pct  = 0.35; carb_pct = 0.40; gord_pct = 0.25
+            macro_label = "Padrao: 35% prot / 40% carb / 25% gord"
+
+        prot_g = (calorias_alvo * prot_pct) / 4
+        carb_g = (calorias_alvo * carb_pct) / 4
+        gord_g = (calorias_alvo * gord_pct) / 9
+
+        # Hidratacao: I tri = peso x 35ml | II e III tri = peso x 40ml
+        agua_ml = peso * 35 if trimestre == "I" else peso * 40
+        agua_l  = agua_ml / 1000
 
         return {
-            "tmb":           round(tmb),
-            "fator_nome":    fator_nome,
-            "manutencao":    round(manutencao),
-            "calorias_alvo": round(calorias_alvo),
-            "estrategia":    estrategia,
-            "prot_g":        round(prot_g),
-            "carb_g":        round(carb_g),
-            "gord_g":        round(gord_g),
-            "agua_l":        round(agua_l, 1),
-            "trimestre":     trimestre,
-            "tri_nome":      tri_nome,
+            "tmb":            round(tmb),
+            "fator_nome":     fator_nome,
+            "manutencao":     round(manutencao),
+            "calorias_alvo":  round(calorias_alvo),
+            "estrategia":     estrategia,
+            "imc":            round(imc, 1),
+            "categoria_peso": categoria_peso,
+            "peso_ideal":     round(peso_ideal, 1),
+            "prot_g":         round(prot_g),
+            "carb_g":         round(carb_g),
+            "gord_g":         round(gord_g),
+            "macro_label":    macro_label,
+            "prot_pct":       int(prot_pct * 100),
+            "carb_pct":       int(carb_pct * 100),
+            "gord_pct":       int(gord_pct * 100),
+            "agua_l":         round(agua_l, 1),
+            "trimestre":      trimestre,
+            "tri_nome":       tri_nome,
         }
 
     except Exception as e:
@@ -859,14 +919,16 @@ def _gerar_plano_interno(dados):
         bloco_calculos = f"""
 CALCULOS CLINICOS JA REALIZADOS (use estes valores exatos no plano):
 - Trimestre: {calculos['tri_nome']}
+- IMC: {calculos['imc']} — Categoria: {calculos['categoria_peso']} (peso ideal para gestar: {calculos['peso_ideal']}kg)
 - TMB (Mifflin-St Jeor): {calculos['tmb']} kcal
 - Nivel de atividade: {calculos['fator_nome']}
 - Calorias de manutencao: {calculos['manutencao']} kcal
 - Calorias alvo do plano: {calculos['calorias_alvo']} kcal
 - Estrategia: {calculos['estrategia']}
-- Proteina: {calculos['prot_g']}g/dia (35% das calorias — 4 kcal/g)
-- Carboidrato: {calculos['carb_g']}g/dia (40% das calorias — 4 kcal/g)
-- Gordura: {calculos['gord_g']}g/dia (25% das calorias — 9 kcal/g)
+- Distribuicao de macros: {calculos['macro_label']}
+- Proteina: {calculos['prot_g']}g/dia ({calculos['prot_pct']}% das calorias — 4 kcal/g)
+- Carboidrato: {calculos['carb_g']}g/dia ({calculos['carb_pct']}% das calorias — 4 kcal/g)
+- Gordura: {calculos['gord_g']}g/dia ({calculos['gord_pct']}% das calorias — 9 kcal/g)
 - Meta de agua: {calculos['agua_l']}L/dia"""
     else:
         bloco_calculos = """
