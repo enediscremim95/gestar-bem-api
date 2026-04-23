@@ -408,7 +408,7 @@ atexit.register(lambda: _scheduler.shutdown(wait=False))
 
 # ── Funcao de envio de email ─────────────────────────────────────────────────
 
-def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None):
+def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None, treino_aguardando_liberacao=False):
     """Envia PDF de nutricao (anexo) + links de treino (corpo) via SendGrid."""
     sg_key    = os.environ.get('SENDGRID_API_KEY', '')
     remetente = 'planosgestarbem@gmail.com'
@@ -422,7 +422,11 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None)
     # Montar bloco de links de treino
     bloco_treino = ""
     if links_treino:
-        bloco_treino = "\n\n" + "—" * 40 + "\n📋 SEUS PLANOS DE TREINO\n\n"
+        if treino_aguardando_liberacao:
+            bloco_treino = "\n\n" + "—" * 40 + "\n🏋️ PLANOS DE TREINO — DISPONÍVEIS PARA QUANDO VOCÊ FOR LIBERADA\n\n"
+            bloco_treino += "Sabemos que no momento você está aguardando liberação médica para praticar exercícios. Deixamos os seus planos de treino aqui para que fiquem à sua disposição assim que você receber o sinal verde do seu médico! 💪\n\n"
+        else:
+            bloco_treino = "\n\n" + "—" * 40 + "\n📋 SEUS PLANOS DE TREINO\n\n"
         for url, label in links_treino:
             bloco_treino += f"▶ {label}:\n{url}\n\n"
         bloco_treino += "Clique no link acima para abrir o PDF no navegador.\nVocê também pode salvar no seu celular para consultar offline."
@@ -536,14 +540,14 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
 
 def selecionar_links_exercicio(dados, trimestre):
     """
-    Retorna sempre os dois links de treino (academia + casa).
+    Retorna sempre os dois links de treino (academia + casa) + flag nao_liberada.
     Se houver limitacao fisica, o link de academia e substituido pelo PDF adaptado.
-    Retorna lista vazia se paciente nao estiver liberada para exercicios.
+    Mesmo quando nao liberada medicamente, envia os treinos para quando for liberada.
+    Retorna (links, nao_liberada).
     """
     liberado = str(dados.get('liberado_exercicio', '')).lower()
-    if 'nao' in liberado or 'não' in liberado or not liberado.strip():
-        log.info("Paciente nao liberada para exercicios — sem link de treino")
-        return []
+    nao_liberada = 'nao' in liberado or 'não' in liberado or not liberado.strip()
+    # Mesmo sem liberação médica, enviamos os treinos para quando ela for liberada
 
     nivel_r = str(dados.get('nivel_exercicio', '')).lower()
     limit   = str(dados.get('limitacao_exercicio', '')).strip()
@@ -588,7 +592,7 @@ def selecionar_links_exercicio(dados, trimestre):
         log.warning(f"PDF casa nao encontrado: {caminho_casa}")
 
     log.info(f"Links de treino selecionados: {[l for _, l in links]}")
-    return links
+    return links, nao_liberada
 
 
 # ── Calculos clinicos (TMB, macros, hidratacao) ──────────────────────────────
@@ -1293,7 +1297,7 @@ Se encontrar qualquer inconsistencia, corrija antes de entregar."""
     pdf_nutri    = base64.b64decode(pdf_b64)
 
     # ── Selecionar links de treino ────────────────────────────────────────────
-    links_treino = selecionar_links_exercicio(dados, trimestre_codigo)
+    links_treino, treino_aguardando_liberacao = selecionar_links_exercicio(dados, trimestre_codigo)
 
     # ── Montar lista de PDFs para o email (apenas nutricao como anexo) ────────
     pdfs_email = [(pdf_nutri, nome_pdf)]
@@ -1302,7 +1306,8 @@ Se encontrar qualquer inconsistencia, corrija antes de entregar."""
     # email ja validado no inicio da funcao — sempre presente aqui
     # NAO capturamos a excecao aqui: se o email falhar, o erro sobe para
     # verificar_fila() que vai retentar o job automaticamente (ate MAX_TENTATIVAS)
-    enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino)
+    enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino,
+                     treino_aguardando_liberacao=treino_aguardando_liberacao)
     log.info(f"[INTERNO] Concluido para {nome} — email enviado para {email} com {len(links_treino)} link(s) de treino")
 
 
