@@ -769,53 +769,54 @@ def calcular_dados_clinicos(dados):
         if categoria_peso == "ABAIXO_DO_PESO":
             calorias_alvo = manutencao + 150
             estrategia = (
-                f"ABAIXO DO PESO (IMC {imc:.1f}) — acrescimo de 150 kcal nos 3 trimestres. "
-                f"Peso atual {peso:.1f}kg, peso ideal estimado {peso_ideal:.1f}kg. "
-                f"Objetivo: ganho de peso gradual e seguro."
+                f"ABAIXO DO PESO (IMC {imc:.1f}) — acrescimo calorico para ganho gradual e seguro."
             )
+            if trimestre == "I":
+                meta_peso = "ganho de 1 a 2 kg neste trimestre (total recomendado na gestação: 12 a 18 kg)"
+            elif trimestre == "II":
+                meta_peso = "ganho de 4 a 5 kg neste trimestre"
+            else:
+                meta_peso = "ganho de 5 a 6 kg neste trimestre (reta final)"
 
         elif categoria_peso == "SOBREPESO_OBESIDADE":
             if trimestre == "I":
                 calorias_alvo = max(manutencao - 450, 1500)
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 1o trimestre: deficit de 450 kcal "
-                    f"(range 300-600), minimo 1.500 kcal. "
-                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 1o trimestre."
                 )
+                meta_peso = "manutenção do peso ou ganho máximo de 1 kg neste trimestre (total recomendado na gestação: 5 a 9 kg)"
             elif trimestre == "II":
                 calorias_alvo = max(manutencao - 275, 1600)
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 2o trimestre: deficit de 275 kcal "
-                    f"(range 200-350), minimo 1.600 kcal. "
-                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 2o trimestre."
                 )
+                meta_peso = "ganho de 1 a 2 kg neste trimestre, de forma gradual e segura"
             else:
                 calorias_alvo = max(manutencao - 275, 1500)
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — 3o trimestre: deficit de 275 kcal "
-                    f"(range 200-350), minimo 1.500 kcal. "
-                    f"Calorias alvo: {round(calorias_alvo)} kcal."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 3o trimestre."
                 )
+                meta_peso = "ganho de 1 a 2 kg neste trimestre, de forma gradual e segura"
 
         else:  # IDEAL
             if trimestre == "I":
                 calorias_alvo = manutencao - 175
                 estrategia = (
-                    f"PESO IDEAL (IMC {imc:.1f}) — 1o trimestre: leve deficit de 175 kcal "
-                    f"(range 150-200). Objetivo: manutencao de peso."
+                    f"PESO IDEAL (IMC {imc:.1f}) — plano de manutencao para o 1o trimestre."
                 )
+                meta_peso = "manutenção do peso atual (ganho de até 1 kg neste trimestre é normal)"
             elif trimestre == "II":
                 calorias_alvo = manutencao + 175
                 estrategia = (
-                    f"PESO IDEAL (IMC {imc:.1f}) — 2o trimestre: acrescimo de 175 kcal "
-                    f"(range 150-200). Objetivo: ganho de 3 a 3,5 kg."
+                    f"PESO IDEAL (IMC {imc:.1f}) — acrescimo calorico para o 2o trimestre."
                 )
+                meta_peso = "ganho de 3 a 3,5 kg neste trimestre"
             else:
                 calorias_alvo = manutencao + 175
                 estrategia = (
-                    f"PESO IDEAL (IMC {imc:.1f}) — 3o trimestre: acrescimo de 175 kcal "
-                    f"(range 150-200). Objetivo: ganho de 3,5 a 4 kg."
+                    f"PESO IDEAL (IMC {imc:.1f}) — acrescimo calorico para o 3o trimestre."
                 )
+                meta_peso = "ganho de 3,5 a 4 kg neste trimestre"
 
         # Detectar DG para ajuste de macros (40% prot / 35% carb / 25% gord)
         quadros    = str(dados.get('quadros_clinicos', '')).lower()
@@ -860,6 +861,7 @@ def calcular_dados_clinicos(dados):
             "carb_pct":       int(carb_pct * 100),
             "gord_pct":       int(gord_pct * 100),
             "agua_l":         round(agua_l, 1),
+            "meta_peso":      meta_peso,
             "trimestre":      trimestre,
             "tri_nome":       tri_nome,
         }
@@ -1014,12 +1016,18 @@ CALCULOS CLINICOS JA REALIZADOS (use estes valores exatos no plano):
 - Nivel de atividade: {calculos['fator_nome']}
 - Calorias de manutencao: {calculos['manutencao']} kcal
 - Calorias alvo do plano: {calculos['calorias_alvo']} kcal
-- Estrategia: {calculos['estrategia']}
+- Estrategia (USO INTERNO — NAO mencionar deficit no PDF): {calculos['estrategia']}
+- Meta de peso para este trimestre (INCLUIR no PDF): {calculos['meta_peso']}
 - Distribuicao de macros: {calculos['macro_label']}
 - Proteina: {calculos['prot_g']}g/dia ({calculos['prot_pct']}% das calorias — 4 kcal/g)
 - Carboidrato: {calculos['carb_g']}g/dia ({calculos['carb_pct']}% das calorias — 4 kcal/g)
 - Gordura: {calculos['gord_g']}g/dia ({calculos['gord_pct']}% das calorias — 9 kcal/g)
-- Meta de agua: {calculos['agua_l']}L/dia"""
+- Meta de agua: {calculos['agua_l']}L/dia
+
+INSTRUCAO IMPORTANTE SOBRE OS CALCULOS NO PDF:
+- Apresente as "Calorias do seu plano" como o valor que o corpo precisa para se nutrir bem neste momento — SEM mencionar que e um deficit ou reducao. Exemplo: "Calorias do seu plano: 1.676 kcal/dia — esse e o valor ideal para nutrir voce e o bebe com seguranca neste trimestre."
+- SEMPRE inclua a meta de peso ao final da secao de calculos, de forma acolhedora. Exemplo: "Meta para este trimestre: {calculos['meta_peso']}."
+- Nunca use as palavras "deficit", "reducao calorica" ou "corte de calorias" no PDF."""
     else:
         bloco_calculos = """
 CALCULOS CLINICOS: Nao foi possivel calcular automaticamente.
