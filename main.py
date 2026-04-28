@@ -200,6 +200,57 @@ def verificar_fila():
                 conn2.close()
 
 
+def _enviar_alerta_dados_suspeitos(dados, problemas):
+    """Avisa a equipe quando peso ou altura parecem incorretos, para confirmar com a paciente."""
+    sg_key    = os.environ.get('SENDGRID_API_KEY', '')
+    remetente = 'planosgestarbem@gmail.com'
+    destinatarios_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
+    destinatarios = [e.strip() for e in destinatarios_str.split(',') if e.strip()]
+
+    if not sg_key:
+        log.error("[ALERTA-DADOS] SENDGRID_API_KEY nao configurado")
+        return
+
+    nome  = dados.get('nome', '?')
+    email = dados.get('email', '?')
+    peso  = dados.get('peso_atual', '?')
+    alt   = dados.get('altura', '?')
+
+    corpo = f"""⚠️ ATENÇÃO — Dados suspeitos no formulário da paciente
+
+Paciente: {nome}
+Email: {email}
+Peso informado: {peso}
+Altura informada: {alt}
+
+Problema(s) detectado(s):
+{chr(10).join(f'• {p}' for p in problemas)}
+
+O plano foi gerado normalmente com os dados corrigidos automaticamente.
+Por favor, confirme com a paciente se os dados estão corretos e reprocesse se necessário.
+
+Painel: https://painel.programagestarbem.com.br/painel"""
+
+    payload = {
+        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
+        "subject": f"⚠️ Dados suspeitos — {nome} (confirmar com paciente)",
+        "content": [{"type": "text/plain", "value": corpo}],
+    }
+
+    req = urllib.request.Request(
+        "https://api.sendgrid.com/v3/mail/send",
+        data=json.dumps(payload).encode('utf-8'),
+        headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            log.info(f"[ALERTA-DADOS] Alerta enviado para {destinatarios} — {nome}")
+    except Exception as ex:
+        log.error(f"[ALERTA-DADOS] Falha ao enviar alerta: {ex}")
+
+
 def _enviar_alerta_falha(job_id, dados, tentativas, erro):
     """Envia email de alerta para os responsaveis quando um job falha definitivamente."""
     sg_key    = os.environ.get('SENDGRID_API_KEY', '')
@@ -641,6 +692,29 @@ def calcular_dados_clinicos(dados):
             while alt > 220:
                 alt = alt / 10
             log.warning(f"Altura corrigida automaticamente: {alt_original} -> {alt:.1f}cm (provavel erro de digitacao)")
+
+        # Detectar inversão e dados suspeitos — alerta para a equipe
+        alertas_dados = []
+
+        # Caso clássico: peso e altura invertidos (ex: peso=170, altura=60)
+        if (140 <= peso <= 220) and (alt < 100):
+            log.warning(f"Possivel inversao peso/altura: peso={peso}, alt={alt} — corrigindo")
+            peso, alt = alt, peso
+            alertas_dados.append(
+                f"Peso e altura parecem invertidos. "
+                f"Peso original: {dados.get('peso_atual')} | Altura original: {dados.get('altura')}. "
+                f"Corrigido automaticamente para peso={peso:.1f}kg / altura={alt:.1f}cm."
+            )
+
+        # Peso muito alto para gestante — pode ser confusão com altura
+        elif peso > 130:
+            alertas_dados.append(
+                f"Peso informado ({peso:.1f}kg) está acima de 130kg. "
+                f"Verifique com a paciente se o valor está correto."
+            )
+
+        if alertas_dados:
+            _enviar_alerta_dados_suspeitos(dados, alertas_dados)
 
         # Validar ranges razoaveis após correção
         if not (30 <= peso <= 200):
