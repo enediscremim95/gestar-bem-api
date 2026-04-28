@@ -630,11 +630,23 @@ def calcular_dados_clinicos(dados):
             log.warning(f"Altura parece estar em metros ({alt}m) — convertendo para cm ({alt*100}cm)")
             alt = alt * 100
 
-        # Validar ranges razoaveis
+        # Corrigir erros de digitação comuns (ex: 985 no lugar de 98,5)
+        if peso > 200:
+            peso_original = peso
+            while peso > 200:
+                peso = peso / 10
+            log.warning(f"Peso corrigido automaticamente: {peso_original} -> {peso:.1f}kg (provavel erro de digitacao)")
+        if alt > 220:
+            alt_original = alt
+            while alt > 220:
+                alt = alt / 10
+            log.warning(f"Altura corrigida automaticamente: {alt_original} -> {alt:.1f}cm (provavel erro de digitacao)")
+
+        # Validar ranges razoaveis após correção
         if not (30 <= peso <= 200):
-            log.warning(f"Peso fora do range esperado: {peso}kg")
+            log.warning(f"Peso fora do range esperado mesmo apos correcao: {peso}kg")
         if not (140 <= alt <= 220):
-            log.warning(f"Altura fora do range esperado: {alt}cm")
+            log.warning(f"Altura fora do range esperado mesmo apos correcao: {alt}cm")
         if not (1 <= semanas <= 42):
             log.warning(f"Semanas fora do range esperado: {semanas}")
 
