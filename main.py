@@ -154,6 +154,33 @@ def verificar_fila():
             log.info(f"[FILA] Job {job_id} concluido com sucesso")
 
         except Exception as e:
+            err_str = str(e).lower()
+            sem_credito = 'credit' in err_str or 'billing' in err_str or 'quota' in err_str
+
+            if sem_credito:
+                # Erro de crédito: NÃO conta tentativa, pausa 2h e tenta de novo automaticamente
+                proxima = datetime.now(timezone.utc) + timedelta(hours=2)
+                log.warning(f"[FILA] Job {job_id} pausado por falta de crédito Anthropic "
+                            f"— proxima tentativa em 2h (tentativas nao consumidas: {tentativas}/{MAX_TENTATIVAS_TOTAL})")
+                conn3 = None
+                try:
+                    conn3 = get_db()
+                    cur3  = conn3.cursor()
+                    cur3.execute("""
+                        UPDATE planos_agendados
+                        SET proxima_tentativa = %s,
+                            erro              = %s
+                        WHERE id = %s
+                    """, (proxima, 'Aguardando credito Anthropic — tentativa automatica em 2h', job_id))
+                    conn3.commit()
+                    cur3.close()
+                except Exception:
+                    pass
+                finally:
+                    if conn3:
+                        conn3.close()
+                continue  # pula o resto do loop — nao desiste, nao incrementa tentativas
+
             nova_tentativa  = tentativas + 1
             desistir        = nova_tentativa >= MAX_TENTATIVAS_TOTAL
             completou_rodada = (nova_tentativa % TENTATIVAS_POR_RODADA == 0) and not desistir
