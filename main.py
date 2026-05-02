@@ -447,12 +447,57 @@ https://web-production-94437.up.railway.app/health"""
         log.error(f"[CHECK] Falha ao enviar relatorio: {ex}")
 
 
+def check_anthropic():
+    """Roda a cada 2h — verifica se a API Anthropic tem credito. Alerta imediato se nao tiver."""
+    try:
+        _anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}]
+        )
+        log.info("[ANTHROPIC] API OK")
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'credit' in err_str or 'billing' in err_str or 'quota' in err_str:
+            log.error("[ANTHROPIC] CREDITO ESGOTADO — enviando alerta")
+            sg_key = os.environ.get('SENDGRID_API_KEY', '')
+            dest_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
+            destinatarios = [e.strip() for e in dest_str.split(',') if e.strip()]
+            corpo = """🔴 URGENTE — Crédito Anthropic esgotado
+
+Os planos do Gestar Bem PARARAM de ser gerados.
+
+AÇÃO NECESSÁRIA AGORA:
+Acesse console.anthropic.com → Plans & Billing → adicionar créditos.
+
+A chave está na conta planosgestarbem@gmail.com."""
+            payload = {
+                "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+                "from":    {"email": "planosgestarbem@gmail.com", "name": "Gestar Bem — Sistema"},
+                "subject": "🔴 URGENTE: Planos parados — crédito Anthropic zerado",
+                "content": [{"type": "text/plain", "value": corpo}],
+            }
+            req = urllib.request.Request(
+                "https://api.sendgrid.com/v3/mail/send",
+                data=json.dumps(payload).encode('utf-8'),
+                headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            try:
+                urllib.request.urlopen(req, timeout=30)
+            except Exception as ex:
+                log.error(f"[ANTHROPIC] Falha ao enviar alerta: {ex}")
+        else:
+            log.warning(f"[ANTHROPIC] Erro inesperado na checagem: {e}")
+
+
 # Inicializar banco e agendador ao subir o servidor
 init_db()
 _scheduler = BackgroundScheduler(timezone='America/Sao_Paulo')
-_scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila', max_instances=1)
-_scheduler.add_job(limpar_banco,   'cron', hour=3,  minute=0,  id='limpar_banco',   max_instances=1)
-_scheduler.add_job(check_diario,   'cron', hour=10, minute=7,  id='check_diario',   max_instances=1)
+_scheduler.add_job(verificar_fila,    'interval', minutes=1,  id='verificar_fila',    max_instances=1)
+_scheduler.add_job(limpar_banco,      'cron', hour=3,  minute=0,  id='limpar_banco',   max_instances=1)
+_scheduler.add_job(check_diario,      'cron', hour=10, minute=7,  id='check_diario',   max_instances=1)
+_scheduler.add_job(check_anthropic,   'interval', hours=2,    id='check_anthropic',   max_instances=1)
 _scheduler.start()
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 
