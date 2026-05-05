@@ -564,7 +564,7 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None,
             bloco_treino = "\n\n" + "—" * 40 + "\n📋 SEUS PLANOS DE TREINO\n\n"
         for url, label in links_treino:
             bloco_treino += f"▶ {label}:\n{url}\n\n"
-        bloco_treino += "Clique no link acima para abrir o PDF no navegador.\nVocê também pode salvar no seu celular para consultar offline."
+        bloco_treino += "⚠️ IMPORTANTE: salve os PDFs no seu celular agora! Os links ficam disponíveis por 90 dias — depois disso expiram. Se perder o email, entre em contato com nossa equipe para reenvio."
 
     corpo = f"""Olá, {nome_paciente}! 💜
 
