@@ -554,29 +554,73 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None,
     if not pdfs_lista:
         raise ValueError("Nenhum PDF gerado — email nao sera enviado sem anexo")
 
-    # Montar bloco de links de treino
-    bloco_treino = ""
+    # Montar blocos de treino (texto e HTML)
+    bloco_treino_txt = ""
+    bloco_treino_html = ""
+    aviso = "⚠️ IMPORTANTE: salve os PDFs no seu celular agora! Os links ficam disponíveis por 90 dias — depois disso expiram. Se perder o email, entre em contato com nossa equipe para reenvio."
     if links_treino:
         if treino_aguardando_liberacao:
-            bloco_treino = "\n\n" + "—" * 40 + "\n🏋️ PLANOS DE TREINO — DISPONÍVEIS PARA QUANDO VOCÊ FOR LIBERADA\n\n"
-            bloco_treino += "Sabemos que no momento você está aguardando liberação médica para praticar exercícios. Deixamos os seus planos de treino aqui para que fiquem à sua disposição assim que você receber o sinal verde do seu médico! 💪\n\n"
+            titulo_txt  = "🏋️ PLANOS DE TREINO — DISPONÍVEIS PARA QUANDO VOCÊ FOR LIBERADA"
+            intro_txt   = "Sabemos que no momento você está aguardando liberação médica para praticar exercícios. Deixamos os seus planos de treino aqui para que fiquem à sua disposição assim que você receber o sinal verde do seu médico! 💪"
+            titulo_html = "🏋️ Planos de Treino — Disponíveis para quando você for liberada"
+            intro_html  = "Sabemos que no momento você está aguardando liberação médica. Deixamos os planos aqui para quando você receber o sinal verde do seu médico! 💪"
         else:
-            bloco_treino = "\n\n" + "—" * 40 + "\n📋 SEUS PLANOS DE TREINO\n\n"
-        for url, label in links_treino:
-            bloco_treino += f"▶ {label}:\n{url}\n\n"
-        bloco_treino += "⚠️ IMPORTANTE: salve os PDFs no seu celular agora! Os links ficam disponíveis por 90 dias — depois disso expiram. Se perder o email, entre em contato com nossa equipe para reenvio."
+            titulo_txt  = "📋 SEUS PLANOS DE TREINO"
+            intro_txt   = ""
+            titulo_html = "📋 Seus Planos de Treino"
+            intro_html  = ""
 
-    corpo = f"""Olá, {nome_paciente}! 💜
+        bloco_treino_txt = f"\n\n{'—'*40}\n{titulo_txt}\n\n"
+        if intro_txt:
+            bloco_treino_txt += intro_txt + "\n\n"
+        for url, label in links_treino:
+            bloco_treino_txt += f"▶ {label}:\n{url}\n\n"
+        bloco_treino_txt += aviso
+
+        links_html = ""
+        for url, label in links_treino:
+            links_html += (
+                f'<p style="margin:10px 0;">'
+                f'<a href="{url}" style="display:inline-block;background:#9B27AF;color:#ffffff;'
+                f'text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;">'
+                f'▶ {label}</a></p>\n'
+            )
+        bloco_treino_html = f"""
+<br><hr style="border:none;border-top:1px solid #e0d0f0;margin:24px 0;">
+<h3 style="color:#9B27AF;margin-bottom:8px;">{titulo_html}</h3>
+{'<p style="color:#555;font-size:14px;">' + intro_html + '</p>' if intro_html else ''}
+{links_html}
+<p style="font-size:12px;color:#888;margin-top:16px;">{aviso}</p>"""
+
+    corpo_txt = f"""Olá, {nome_paciente}! 💜
 
 Seu plano personalizado do programa Gestar Bem está pronto!
 
-Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.{bloco_treino}
+Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.{bloco_treino_txt}
 
 —————————————————————————
 Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.
 
 Com carinho,
 Equipe Gestar Bem 🌸"""
+
+    corpo_html = f"""<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:Arial,sans-serif;background:#fdf6ff;margin:0;padding:0;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(155,39,175,.1);">
+  <div style="background:#9B27AF;padding:24px 28px;text-align:center;">
+    <h1 style="color:#fff;font-size:22px;margin:0;">Gestar Bem 🌸</h1>
+  </div>
+  <div style="padding:28px;">
+    <p style="font-size:16px;color:#333;">Olá, <strong>{nome_paciente}</strong>! 💜</p>
+    <p style="color:#555;font-size:14px;line-height:1.6;">Seu plano personalizado do programa Gestar Bem está pronto!</p>
+    <p style="color:#555;font-size:14px;line-height:1.6;">Em anexo você encontra o seu <strong>Plano de Nutrição completo</strong>, preparado especialmente para você com muito carinho e cuidado.{bloco_treino_html}</p>
+    <hr style="border:none;border-top:1px solid #e0d0f0;margin:24px 0;">
+    <p style="color:#555;font-size:13px;">Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.</p>
+    <p style="color:#9B27AF;font-size:14px;font-weight:600;">Com carinho, Equipe Gestar Bem 🌸</p>
+  </div>
+</div>
+</body></html>"""
 
     anexos = []
     for pdf_bytes, nome_arquivo in pdfs_lista:
@@ -591,7 +635,10 @@ Equipe Gestar Bem 🌸"""
         "personalizations": [{"to": [{"email": destinatario}]}],
         "from":    {"email": remetente, "name": "Gestar Bem"},
         "subject": "Seu Plano Personalizado — Gestar Bem",
-        "content": [{"type": "text/plain", "value": corpo}],
+        "content": [
+            {"type": "text/plain", "value": corpo_txt},
+            {"type": "text/html",  "value": corpo_html}
+        ],
         "attachments": anexos,
         "tracking_settings": {
             "click_tracking": {"enable": False, "enable_text": False}
