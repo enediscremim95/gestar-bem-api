@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, logging, re, threading, base64, json, traceback, atexit, time
+import os, logging, re, threading, base64, json, traceback, atexit, time, secrets
 import urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 
@@ -98,6 +98,18 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_fila_pendente
             ON planos_agendados (agendado_para)
             WHERE processado = FALSE
+        """)
+        # Tabela de tokens para links de treino personalizados
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS treino_tokens (
+                token      VARCHAR(24)  PRIMARY KEY,
+                pdf_path   TEXT         NOT NULL,
+                label      TEXT         NOT NULL,
+                email      TEXT,
+                expires_at TIMESTAMP    NOT NULL,
+                acessos    INTEGER      DEFAULT 0,
+                criado_em  TIMESTAMP    DEFAULT NOW()
+            )
         """)
         conn.commit()
         cur.close()
@@ -616,6 +628,55 @@ def _base_url():
     return f"https://{dominio}"
 
 
+TREINOS_DOMAIN = "treinos.programagestarbem.com.br"
+
+
+def criar_token_treino(pdf_path, label, email='', dias=90):
+    """Cria token único para acesso a um PDF de treino. Retorna a URL completa."""
+    token = secrets.token_urlsafe(14)  # ~19 chars URL-safe
+    expires = datetime.now(timezone.utc) + timedelta(days=dias)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO treino_tokens (token, pdf_path, label, email, expires_at)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (token, pdf_path, label, email, expires))
+        conn.commit()
+    finally:
+        conn.close()
+    return f"https://{TREINOS_DOMAIN}/t/{token}"
+
+
+@app.route('/t/<token>')
+def servir_treino_por_token(token):
+    """Serve PDF de treino via token único."""
+    if not re.match(r'^[A-Za-z0-9_\-]{10,30}$', token):
+        abort(404)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE treino_tokens
+            SET acessos = acessos + 1
+            WHERE token = %s AND expires_at > NOW()
+            RETURNING pdf_path, label
+        """, (token,))
+        row = cur.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if not row:
+        abort(404)
+    pdf_path = row[0]
+    full_path = os.path.join(PDF_BASE, pdf_path.replace('/', os.sep))
+    directory = os.path.dirname(full_path)
+    filename  = os.path.basename(full_path)
+    if not os.path.isfile(full_path):
+        abort(404)
+    return send_from_directory(directory, filename)
+
+
 def selecionar_pdf_limitacao(limitacao, nivel, tri):
     """Seleciona PDF de limitacao com base no tipo de limitacao relatada."""
     lim = limitacao.lower()
@@ -661,16 +722,15 @@ def selecionar_pdf_limitacao(limitacao, nivel, tri):
 
 
 
-def selecionar_links_exercicio(dados, trimestre):
+def selecionar_pdfs_exercicio(dados, trimestre):
     """
-    Retorna sempre os dois links de treino (academia + casa) + flag nao_liberada.
-    Se houver limitacao fisica, o link de academia e substituido pelo PDF adaptado.
-    Mesmo quando nao liberada medicamente, envia os treinos para quando for liberada.
-    Retorna (links, nao_liberada).
+    Retorna sempre os dois PDFs de treino (academia + casa) + flag nao_liberada.
+    Se houver limitacao fisica, o PDF de academia e substituido pelo adaptado.
+    Retorna ([(pdf_rel_path, label), ...], nao_liberada).
+    pdf_rel_path é relativo a PDF_BASE (ex: "academia/academia_I_iniciante.pdf").
     """
     liberado = str(dados.get('liberado_exercicio', '')).lower()
     nao_liberada = 'nao' in liberado or 'não' in liberado or not liberado.strip()
-    # Mesmo sem liberação médica, enviamos os treinos para quando ela for liberada
 
     nivel_r = str(dados.get('nivel_exercicio', '')).lower()
     limit   = str(dados.get('limitacao_exercicio', '')).strip()
@@ -688,33 +748,43 @@ def selecionar_links_exercicio(dados, trimestre):
                      ('nao', 'não', 'nenhuma', 'nenhum', 'sem limitacao',
                       'sem limitação', 'nao tenho', 'não tenho', ''))
 
-    base  = _base_url()
-    links = []
+    pdfs = []
 
-    # ── Link 1: Academia (ou adaptado se houver limitacao) ──
+    # ── PDF 1: Academia (ou adaptado se houver limitacao) ──
     if tem_limit:
         full_path = selecionar_pdf_limitacao(limit, nivel, trimestre)
         rel   = os.path.relpath(full_path, PDF_BASE).replace('\\', '/')
-        label = "Plano de Treinos — Academia (adaptado para sua limitacao)"
+        label = "Plano de Treinos — Academia (adaptado para sua limitação)"
     else:
         rel   = f"academia/academia_{trimestre}_{nivel}.pdf"
         label = "Plano de Treinos — Academia"
 
-    caminho_local = os.path.join(PDF_BASE, rel.replace('/', os.sep))
-    if os.path.exists(caminho_local):
-        links.append((f"{base}/treino/{rel}", label))
+    if os.path.exists(os.path.join(PDF_BASE, rel.replace('/', os.sep))):
+        pdfs.append((rel, label))
     else:
-        log.warning(f"PDF academia nao encontrado: {caminho_local}")
+        log.warning(f"PDF academia nao encontrado: {rel}")
 
-    # ── Link 2: Casa — sempre enviado ──
-    rel_casa      = f"casa/casa_{trimestre}.pdf"
-    caminho_casa  = os.path.join(PDF_BASE, rel_casa)
-    if os.path.exists(caminho_casa):
-        links.append((f"{base}/treino/{rel_casa}", "Plano de Treinos — Casa"))
+    # ── PDF 2: Casa — sempre enviado ──
+    rel_casa = f"casa/casa_{trimestre}.pdf"
+    if os.path.exists(os.path.join(PDF_BASE, rel_casa)):
+        pdfs.append((rel_casa, "Plano de Treinos — Casa"))
     else:
-        log.warning(f"PDF casa nao encontrado: {caminho_casa}")
+        log.warning(f"PDF casa nao encontrado: {rel_casa}")
 
-    log.info(f"Links de treino selecionados: {[l for _, l in links]}")
+    log.info(f"PDFs de treino selecionados: {[l for _, l in pdfs]}")
+    return pdfs, nao_liberada
+
+
+def selecionar_links_exercicio(dados, trimestre, email=''):
+    """
+    Wrapper que chama selecionar_pdfs_exercicio e gera tokens únicos para cada PDF.
+    Retorna ([(url_tokenizada, label), ...], nao_liberada).
+    """
+    pdfs, nao_liberada = selecionar_pdfs_exercicio(dados, trimestre)
+    links = []
+    for rel_path, label in pdfs:
+        url = criar_token_treino(rel_path, label, email=email)
+        links.append((url, label))
     return links, nao_liberada
 
 
@@ -1472,8 +1542,8 @@ Se encontrar qualquer inconsistencia, corrija antes de entregar."""
     nome_pdf     = nome_arquivo_pdf(nome, semanas_gestacao)
     pdf_nutri    = base64.b64decode(pdf_b64)
 
-    # ── Selecionar links de treino ────────────────────────────────────────────
-    links_treino, treino_aguardando_liberacao = selecionar_links_exercicio(dados, trimestre_codigo)
+    # ── Selecionar links de treino (tokens únicos por paciente) ─────────────
+    links_treino, treino_aguardando_liberacao = selecionar_links_exercicio(dados, trimestre_codigo, email=email)
 
     # ── Montar lista de PDFs para o email (apenas nutricao como anexo) ────────
     pdfs_email = [(pdf_nutri, nome_pdf)]
