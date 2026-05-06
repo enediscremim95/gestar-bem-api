@@ -955,53 +955,57 @@ def calcular_dados_clinicos(dados):
             categoria_peso = "SOBREPESO_OBESIDADE"
 
         # Estrategia calorica por categoria de IMC e trimestre
+        # Regras oficiais Dra. Jessica D'Agostini (protocolo Gestar Bem)
         if categoria_peso == "ABAIXO_DO_PESO":
+            # Abaixo do peso: +150 kcal em todos os trimestres
             calorias_alvo = manutencao + 150
             estrategia = (
-                f"ABAIXO DO PESO (IMC {imc:.1f}) — acrescimo calorico para ganho gradual e seguro."
+                f"ABAIXO DO PESO (IMC {imc:.1f}) — acrescimo de 150 kcal para ganho gradual e seguro."
             )
             if trimestre == "I":
-                meta_peso = "ganho de 1 a 2 kg neste trimestre (total recomendado na gestação: 12 a 18 kg)"
+                meta_peso = "manter o peso atual neste trimestre"
             elif trimestre == "II":
-                meta_peso = "ganho de 4 a 5 kg neste trimestre"
+                meta_peso = "ganho de 3 a 3,5 kg neste trimestre"
             else:
-                meta_peso = "ganho de 5 a 6 kg neste trimestre (reta final)"
+                meta_peso = "ganho de 3,5 a 4 kg neste trimestre"
 
         elif categoria_peso == "SOBREPESO_OBESIDADE":
+            # Sobrepeso/obesidade: deficit por trimestre (minimos de segurança)
             if trimestre == "I":
-                calorias_alvo = max(manutencao - 450, 1500)
+                calorias_alvo = max(manutencao - 450, 1500)  # deficit 300-600 kcal, min 1500
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 1o trimestre."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado para o 1o trimestre (deficit seguro)."
                 )
-                meta_peso = "manutenção do peso ou ganho máximo de 1 kg neste trimestre (total recomendado na gestação: 5 a 9 kg)"
+                meta_peso = "perder ate 5 kg neste trimestre de forma gradual e segura"
             elif trimestre == "II":
-                calorias_alvo = max(manutencao - 275, 1600)
+                calorias_alvo = max(manutencao - 275, 1600)  # deficit 200-350 kcal, min 1600
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 2o trimestre."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado para o 2o trimestre."
                 )
-                meta_peso = "ganho de 1 a 2 kg neste trimestre, de forma gradual e segura"
+                meta_peso = "ganho de 1,5 a 2 kg neste trimestre de forma gradual e segura"
             else:
-                calorias_alvo = max(manutencao - 275, 1500)
+                calorias_alvo = max(manutencao - 275, 1500)  # deficit 200-350 kcal, min 1500
                 estrategia = (
-                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado e seguro para o 3o trimestre."
+                    f"SOBREPESO/OBESIDADE (IMC {imc:.1f}) — plano calorico controlado para o 3o trimestre."
                 )
-                meta_peso = "ganho de 1 a 2 kg neste trimestre, de forma gradual e segura"
+                meta_peso = "ganho de 2 a 2,5 kg neste trimestre de forma gradual e segura"
 
         else:  # IDEAL
+            # Peso ideal: leve deficit no I tri, acrescimo no II e III
             if trimestre == "I":
-                calorias_alvo = manutencao - 175
+                calorias_alvo = manutencao - 175  # deficit leve 150-200 kcal
                 estrategia = (
-                    f"PESO IDEAL (IMC {imc:.1f}) — plano de manutencao para o 1o trimestre."
+                    f"PESO IDEAL (IMC {imc:.1f}) — leve ajuste calorico para o 1o trimestre."
                 )
-                meta_peso = "manutenção do peso atual (ganho de até 1 kg neste trimestre é normal)"
+                meta_peso = "manter o peso atual neste trimestre"
             elif trimestre == "II":
-                calorias_alvo = manutencao + 175
+                calorias_alvo = manutencao + 175  # acrescimo 150-200 kcal
                 estrategia = (
                     f"PESO IDEAL (IMC {imc:.1f}) — acrescimo calorico para o 2o trimestre."
                 )
                 meta_peso = "ganho de 3 a 3,5 kg neste trimestre"
             else:
-                calorias_alvo = manutencao + 175
+                calorias_alvo = manutencao + 175  # acrescimo 150-200 kcal
                 estrategia = (
                     f"PESO IDEAL (IMC {imc:.1f}) — acrescimo calorico para o 3o trimestre."
                 )
@@ -1199,24 +1203,25 @@ def _gerar_plano_interno(dados):
     if calculos:
         bloco_calculos = f"""
 CALCULOS CLINICOS JA REALIZADOS (use estes valores exatos no plano):
+[DADOS INTERNOS — NAO mostrar no PDF: TMB={calculos['tmb']} kcal | Atividade={calculos['fator_nome']} | Manutencao={calculos['manutencao']} kcal]
 - Trimestre: {calculos['tri_nome']}
-- IMC: {calculos['imc']} — Categoria: {calculos['categoria_peso']} (peso ideal para gestar: {calculos['peso_ideal']}kg)
-- TMB (Mifflin-St Jeor): {calculos['tmb']} kcal
-- Nivel de atividade: {calculos['fator_nome']}
-- Calorias de manutencao: {calculos['manutencao']} kcal
-- Calorias alvo do plano: {calculos['calorias_alvo']} kcal
+- IMC: {calculos['imc']} — Categoria: {calculos['categoria_peso']}
+- Peso ideal para gestar (IMC 22): {calculos['peso_ideal']} kg
+- Calorias do plano: {calculos['calorias_alvo']} kcal/dia
 - Estrategia (USO INTERNO — NAO mencionar deficit no PDF): {calculos['estrategia']}
 - Meta de peso para este trimestre (INCLUIR no PDF): {calculos['meta_peso']}
 - Distribuicao de macros: {calculos['macro_label']}
-- Proteina: {calculos['prot_g']}g/dia ({calculos['prot_pct']}% das calorias — 4 kcal/g)
-- Carboidrato: {calculos['carb_g']}g/dia ({calculos['carb_pct']}% das calorias — 4 kcal/g)
-- Gordura: {calculos['gord_g']}g/dia ({calculos['gord_pct']}% das calorias — 9 kcal/g)
+- Proteina: {calculos['prot_g']}g/dia ({calculos['prot_pct']}% das calorias)
+- Carboidrato: {calculos['carb_g']}g/dia ({calculos['carb_pct']}% das calorias)
+- Gordura: {calculos['gord_g']}g/dia ({calculos['gord_pct']}% das calorias)
 - Meta de agua: {calculos['agua_l']}L/dia
 
-INSTRUCAO IMPORTANTE SOBRE OS CALCULOS NO PDF:
-- Apresente as "Calorias do seu plano" como o valor que o corpo precisa para se nutrir bem neste momento — SEM mencionar que e um deficit ou reducao. Exemplo: "Calorias do seu plano: 1.676 kcal/dia — esse e o valor ideal para nutrir voce e o bebe com seguranca neste trimestre."
-- SEMPRE inclua a meta de peso ao final da secao de calculos, de forma acolhedora. Exemplo: "Meta para este trimestre: {calculos['meta_peso']}."
-- Nunca use as palavras "deficit", "reducao calorica" ou "corte de calorias" no PDF."""
+REGRAS ABSOLUTAS PARA A SECAO DE CALCULOS NO PDF:
+1. MOSTRAR apenas: IMC + categoria, peso ideal para gestar, calorias do plano, macros em g e %, meta de agua, meta de peso.
+2. NAO mostrar: TMB, fator de atividade fisica, calorias de manutencao — sao dados internos de calculo, confundem a paciente.
+3. Apresente as calorias do plano como "o valor ideal para nutrir voce e o bebe com seguranca neste trimestre" — SEM mencionar deficit, reducao ou corte.
+4. A meta de peso deve ser apresentada conforme o protocolo: para sobrepeso no 1o tri, dizer que o objetivo e perder peso de forma segura e gradual.
+5. Nunca use as palavras "deficit", "reducao calorica" ou "corte de calorias" no PDF."""
     else:
         bloco_calculos = """
 CALCULOS CLINICOS: Nao foi possivel calcular automaticamente.
@@ -1396,7 +1401,7 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - Refluxo/azia (3o tri): evitar frituras, acidos, refeicoes grandes a noite
 
 6. SUPLEMENTACAO — PROTOCOLO OFICIAL DRA. JESSICA:
-   Marcas preferidas (priorizar nesta ordem): DUX (cupom: PACJESSICADAGOSTINI), Vitafor, Puravida, Essential.
+   NAO mencione marcas especificas nem cupons no PDF — apenas oriente a buscar em lojas de suplementos ou farmacias de manipulacao.
 
    REGRAS POR TRIMESTRE:
    - 1o TRIMESTRE: Metilfolato 400mcg ao dia (nao acido folico comum — usar metilfolato).
@@ -1506,13 +1511,23 @@ Mencione que os materiais de apoio estao disponiveis na plataforma The Members, 
 NAO mencione a plataforma Kiwify.
 
 ## SEUS CALCULOS PERSONALIZADOS
-Apresente os calculos de forma didatica e humanizada (nao robotica).
-Explique o que e TMB, por que as calorias foram definidas assim, o que cada macro faz.
+Apresente de forma didatica e acolhedora, SEM jargao tecnico desnecessario.
+MOSTRAR APENAS (nesta ordem):
+- Trimestre atual e semanas
+- IMC (valor + categoria em linguagem simples, ex: "Acima do peso ideal para gestar")
+- Peso ideal para gestar (em kg)
+- Calorias do seu plano (valor em kcal + frase explicando que e o valor ideal para nutrir ela e o bebe)
+- Meta de peso para este trimestre (conforme calculado — para sobrepeso no 1o tri: falar em perder peso de forma segura)
+- Distribuicao de macronutrientes (proteinas, carboidratos, gorduras — em gramas e percentual)
+- Meta de agua (em litros)
+NAO MOSTRAR: TMB, fator de atividade, calorias de manutencao — esses sao dados internos que confundem a paciente.
 Use os valores ja calculados acima — nao invente outros.
 
 ## SUPLEMENTACAO RECOMENDADA
-Liste suplementos com marcas sugeridas (ex: Vitamine-se, Max Titanium, Sundown, Puravida).
-Orientacao de horario e forma de uso. Sempre finalizar: "Confirme com seu medico antes de iniciar."
+Siga o protocolo oficial da Dra. Jessica (regra 6 acima).
+Para cada suplemento indicado: nome, por que ela precisa (relacionando com os exames/sintomas dela), dose, como tomar.
+NAO mencione marcas especificas nem cupons de desconto — apenas diga que ela pode encontrar em lojas de suplementos ou farmácias de manipulacao.
+NAO inclua a frase "confirme com seu medico" — o protocolo ja foi validado clinicamente.
 
 ---
 
@@ -1559,24 +1574,35 @@ Se a paciente NAO tiver diabetes gestacional, NAO inclua esses alertas.
 
 ## CONSIDERACOES FINAIS
 Encerramento com encorajamento especifico para o momento do trimestre,
-lembretes dos pontos mais importantes do plano,
-e informacoes de contato da equipe Gestar Bem.
+lembretes dos pontos mais importantes do plano.
+Inclua ao final uma secao de contato com o seguinte texto exato (adaptando apenas o nome da paciente):
+"Duvidas? Fale com a equipe Gestar Bem pelo WhatsApp: https://wa.me/554199920539"
+O link deve aparecer como texto clicavel no PDF.
 
-Gere o plano COMPLETO, detalhado e personalizado. Minimo de 1800 palavras.
+Gere o plano COMPLETO, detalhado e personalizado. Minimo de 2000 palavras.
 Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.
+ATENCAO CRITICA: NUNCA corte uma secao no meio. Cada secao deve estar 100% completa antes de comecar a proxima.
+Se a secao de "Alimentos a evitar" foi iniciada, ela DEVE ser encerrada com todos os itens relevantes antes de qualquer despedida ou assinatura.
+A assinatura (Dra. Jessica D'Agostini) so aparece UMA VEZ, ao final das Consideracoes Finais.
 
-ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA:
-1. O perfil alimentar e consistente do inicio ao fim? (se usou frango no almoco, o jantar tambem tem proteina animal?)
+ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA OBRIGATORIA (10 pontos):
+1. O perfil alimentar e consistente do inicio ao fim? (onivora tem proteina animal em todas as refeicoes?)
 2. Todas as refeicoes tem proteina em gramas especificadas?
-3. As intolerancias informadas foram respeitadas em TODAS as refeicoes e substituicoes?
+3. As intolerancias foram respeitadas em TODAS as refeicoes E substituicoes?
 4. Nenhuma refeicao contradiz outra em termos de perfil alimentar?
+5. A secao SEUS CALCULOS PERSONALIZADOS NAO contem TMB, fator de atividade ou calorias de manutencao?
+6. A meta de peso esta correta para o IMC e trimestre desta paciente?
+7. Todas as secoes obrigatorias estao completas e nao foram cortadas no meio?
+8. A secao de alimentos a evitar esta completa com TODOS os itens relevantes (intolerancia, alergia, DG, etc.)?
+9. O link do WhatsApp esta presente nas Consideracoes Finais?
+10. A assinatura da Dra. Jessica aparece apenas uma vez, ao final?
 Se encontrar qualquer inconsistencia, corrija antes de entregar."""
 
     # ── Chamar o Claude ───────────────────────────────────────────────────────
     log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
     message = _anthropic_client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=8000,
+        max_tokens=16000,
         messages=[{"role": "user", "content": prompt}]
     )
     if not message.content:
