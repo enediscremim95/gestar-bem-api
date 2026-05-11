@@ -26,6 +26,7 @@ import anthropic
 from pdf_generator import gerar_pdf_base64, nome_arquivo_pdf
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 60 * 1024 * 1024  # 60MB — suporta ~20 imagens de exame
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -111,6 +112,22 @@ def init_db():
                 criado_em  TIMESTAMP    DEFAULT NOW()
             )
         """)
+        # Tabela de imagens de exames enviadas pelo formulário
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS exames_imagens (
+                id              SERIAL PRIMARY KEY,
+                plano_id        INTEGER REFERENCES planos_agendados(id) ON DELETE CASCADE,
+                campo           VARCHAR(60)  NOT NULL,
+                imagem_bytes    BYTEA        NOT NULL,
+                mime_type       VARCHAR(50)  DEFAULT 'image/jpeg',
+                nome_extraido   TEXT,
+                valor_extraido  TEXT,
+                unidade         TEXT,
+                alerta_nome     BOOLEAN      DEFAULT FALSE,
+                processado      BOOLEAN      DEFAULT FALSE,
+                criado_em       TIMESTAMP    DEFAULT NOW()
+            )
+        """)
         conn.commit()
         cur.close()
         log.info("Banco inicializado com sucesso")
@@ -149,6 +166,7 @@ def verificar_fila():
     for job_id, dados, tentativas in jobs:
         nome = dados.get('nome', '?')
         log.info(f"[FILA] Processando job {job_id} — {nome} (tentativa {tentativas + 1}/{MAX_TENTATIVAS_TOTAL})")
+        dados['_plano_id'] = job_id  # injeta ID para processar imagens de exame
         conn2 = None
         try:
             with app.app_context():
@@ -1066,6 +1084,154 @@ def calcular_dados_clinicos(dados):
         return None
 
 
+# ── Processamento de imagens de exames (Claude Vision) ───────────────────────
+
+CAMPOS_EXAME_IMAGEM = {
+    'img_glicose':             'exame_glicose',
+    'img_hemoglobina_glicada': 'exame_hemoglobina_glicada',
+    'img_vitamina_d':          'exame_vitamina_d',
+    'img_vitamina_b12':        'exame_vitamina_b12',
+    'img_ferritina':           'exame_ferritina',
+    'img_tsh':                 'exame_tsh',
+    'img_t4_livre':            'exame_t4_livre',
+    'img_insulina_jejum':      'exame_insulina_jejum',
+    'img_ferro_serico':        'exame_ferro_serico',
+    'img_hemograma':           'exame_hemograma',
+}
+
+
+def _normalizar_nome(nome):
+    import unicodedata
+    return unicodedata.normalize('NFD', nome or '').encode('ascii', 'ignore').decode().lower().strip()
+
+
+def _nomes_batem(nome_forms, nome_exame):
+    """True se pelo menos uma palavra relevante do formulario aparece no nome do exame."""
+    if not nome_forms or not nome_exame:
+        return True
+    words = {w for w in _normalizar_nome(nome_forms).split() if len(w) > 3}
+    exame_norm = _normalizar_nome(nome_exame)
+    return any(w in exame_norm for w in words)
+
+
+def _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_no_exame):
+    sg_key = os.environ.get('SENDGRID_API_KEY', '')
+    remetente = 'planosgestarbem@gmail.com'
+    destinatarios = [d.strip() for d in os.environ.get('EMAIL_ALERTA', remetente).split(',')]
+    campo_legivel = campo.replace('img_', '').replace('_', ' ').upper()
+    corpo = (
+        f"ATENCAO: exame com nome diferente detectado!\n\n"
+        f"Plano ID: {plano_id}\n"
+        f"Paciente no formulario: {nome_paciente}\n"
+        f"WhatsApp: {whatsapp or 'nao informado'}\n"
+        f"Exame afetado: {campo_legivel}\n"
+        f"Nome encontrado no exame: {nome_no_exame}\n\n"
+        f"O plano foi gerado SEM os valores deste exame.\n"
+        f"Entre em contato pelo WhatsApp e peca o exame correto.\n"
+        f"Apos receber, acesse o painel e reprocesse o plano."
+    )
+    if not sg_key:
+        return
+    payload = {
+        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
+        "subject": f"EXAME DE OUTRA PESSOA — {nome_paciente} (plano #{plano_id})",
+        "content": [{"type": "text/plain", "value": corpo}],
+    }
+    try:
+        req = urllib.request.Request(
+            "https://api.sendgrid.com/v3/mail/send",
+            data=json.dumps(payload).encode('utf-8'),
+            headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=15)
+        log.info(f"Alerta exame errado enviado — plano {plano_id}")
+    except Exception as e:
+        log.error(f"Erro ao enviar alerta exame errado: {e}")
+
+
+def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
+    """
+    Processa imagens de exames salvas no banco com Claude Vision.
+    Extrai valores, confere nome do paciente e retorna {campo: valor}.
+    """
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, campo, imagem_bytes, mime_type FROM exames_imagens "
+            "WHERE plano_id = %s AND processado = FALSE",
+            (plano_id,)
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {}
+
+    valores = {}
+    for (img_id, campo, imagem_bytes, mime_type) in rows:
+        try:
+            img_b64 = base64.b64encode(bytes(imagem_bytes)).decode('utf-8')
+            label   = campo.replace('img_', '').replace('_', ' ').upper()
+
+            msg = _anthropic_client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=150,
+                messages=[{"role": "user", "content": [
+                    {"type": "image",
+                     "source": {"type": "base64", "media_type": mime_type, "data": img_b64}},
+                    {"type": "text",
+                     "text": (
+                         f"Resultado de exame laboratorial. Extraia:\n"
+                         f"1. Nome completo do paciente no exame\n"
+                         f"2. Valor numerico do exame: {label}\n"
+                         f"3. Unidade de medida\n\n"
+                         f"Responda APENAS em JSON:\n"
+                         f'{{\"nome\": \"...\", \"valor\": \"...\", \"unidade\": \"...\"}}\n'
+                         f"Use null se nao encontrar."
+                     )}
+                ]}]
+            )
+
+            r = json.loads(msg.content[0].text.strip())
+            nome_exame     = r.get('nome')
+            valor_extraido = r.get('valor')
+            unidade        = r.get('unidade')
+            alerta         = False
+
+            if nome_exame and not _nomes_batem(nome_paciente, nome_exame):
+                alerta = True
+                log.warning(f"[VISION] Exame errado — plano={plano_id} campo={campo} "
+                             f"paciente='{nome_paciente}' exame='{nome_exame}'")
+                _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_exame)
+
+            conn2 = get_db()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute(
+                    "UPDATE exames_imagens SET nome_extraido=%s, valor_extraido=%s, "
+                    "unidade=%s, alerta_nome=%s, processado=TRUE WHERE id=%s",
+                    (nome_exame, valor_extraido, unidade, alerta, img_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+
+            if not alerta and valor_extraido:
+                campo_destino = CAMPOS_EXAME_IMAGEM.get(campo)
+                if campo_destino:
+                    valores[campo_destino] = f"{valor_extraido} {unidade or ''}".strip()
+                    log.info(f"[VISION] {campo} → {valores[campo_destino]}")
+
+        except Exception as e:
+            log.warning(f"[VISION] Erro ao processar {campo} plano={plano_id}: {e}")
+
+    return valores
+
+
 # ── Endpoint principal ───────────────────────────────────────────────────────
 
 @app.route('/treino/<path:filename>')
@@ -1097,17 +1263,38 @@ def gerar_plano():
     agendado_para = datetime.now(timezone.utc) + timedelta(hours=DELAY_HORAS)
     minutos       = round(DELAY_HORAS * 60)
 
+    # Extrair imagens de exames do payload antes de salvar (nao ficam no JSONB)
+    imagens_exame = {}
+    for campo_img in list(CAMPOS_EXAME_IMAGEM.keys()):
+        if campo_img in dados:
+            imagens_exame[campo_img] = dados.pop(campo_img)
+
     conn = None
     try:
         conn = get_db()
         cur  = conn.cursor()
         cur.execute("""
             INSERT INTO planos_agendados (dados, agendado_para)
-            VALUES (%s, %s)
+            VALUES (%s, %s) RETURNING id
         """, (PgJson(dados), agendado_para))
+        plano_id = cur.fetchone()[0]
+
+        # Salvar imagens de exames vinculadas ao plano
+        for campo_img, b64_str in imagens_exame.items():
+            try:
+                img_bytes = base64.b64decode(b64_str)
+                cur.execute("""
+                    INSERT INTO exames_imagens (plano_id, campo, imagem_bytes, mime_type)
+                    VALUES (%s, %s, %s, %s)
+                """, (plano_id, campo_img, img_bytes, 'image/jpeg'))
+                log.info(f"Imagem {campo_img} salva para plano {plano_id} ({len(img_bytes)//1024}KB)")
+            except Exception as e:
+                log.warning(f"Erro ao salvar imagem {campo_img}: {e}")
+
         conn.commit()
         cur.close()
-        log.info(f"Plano de {nome} agendado para {agendado_para.strftime('%d/%m/%Y %H:%M')}")
+        n_imgs = len(imagens_exame)
+        log.info(f"Plano de {nome} agendado (id={plano_id}, {n_imgs} imagem(s) de exame)")
         return jsonify({
             "status":   "agendado",
             "mensagem": f"Plano de {nome} agendado. Email sera enviado em {minutos} minuto(s).",
@@ -1196,6 +1383,15 @@ def _gerar_plano_interno(dados):
     quadros_clinicos   = dados.get('quadros_clinicos', '')
     alergia_alimentos  = dados.get('alergia_alimentos', '')
     preferencia        = dados.get('preferencia', '')
+
+    # ── Processar imagens de exames com Claude Vision (se houver) ────────────
+    job_id   = dados.get('_plano_id')   # injetado por verificar_fila
+    whatsapp = dados.get('whatsapp', '')
+    if job_id:
+        valores_vision = processar_imagens_exames(job_id, nome, whatsapp)
+        if valores_vision:
+            log.info(f"[VISION] {len(valores_vision)} valor(es) extraído(s) para {nome}: {list(valores_vision.keys())}")
+            dados.update(valores_vision)  # enriquece dados com valores reais dos exames
 
     # Calculos clinicos automaticos
     calculos = calcular_dados_clinicos(dados)
