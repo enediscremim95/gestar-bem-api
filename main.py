@@ -1705,6 +1705,63 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    Metilfolato 400-600 mcg | Metilcobalamina 500 mcg | DHA 700-1000 mg | EPA 300-500 mg
    Vitamina D3 2000 UI | Colina 350 mg | Magnesio bisglicinato 300 mg | Ferro bisglicinato 30-40 mg | Calcio 300-500 mg
 
+   ═══════════ III TRIMESTRE ═══════════
+
+   SUPLEMENTOS BASE (sempre indicar):
+
+   1) Metilfolato (ou acido folico)
+      Dose: 400-600 mcg/dia
+      Marcas: Thorne Basic Prenatal | Pure Encapsulations Prenatal Nutrients | Natele Gest | Femibion 2
+
+   2) DHA (Omega-3)
+      Dose: 1000 mg DHA/dia (dose maxima — reta final de desenvolvimento cerebral do bebe)
+      Marcas: Nordic Naturals Prenatal DHA | Essential Nutrition Super Omega TG | Vitafor Omegafor Mom | Nutrify Omega 3 TG | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   3) EPA
+      Dose: 500 mg/dia (inflamacao, saude vascular, placenta, preparo metabolico materno)
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   4) Colina
+      Dose: 450-500 mg/dia
+      Marcas: Now Choline & Inositol | Thorne Prenatal | manipulado individualizado | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   5) Magnesio bisglicinato
+      Dose: 300-400 mg/dia
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   6) Metilcobalamina (B12)
+      Dose base: 500 mcg/dia
+      Marcas: Jarrow Methyl B12 | Now Methyl B12 | manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   7) Calcio
+      Dose: 500-1000 mg/dia (dose maior que no 2o tri — demanda fetal aumenta na reta final)
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   SUPLEMENTOS CONDICIONAIS — III TRIMESTRE (ajustar dose conforme exame):
+
+   8) Vitamina D
+      SE exame_vitamina_d >= 50: dose 2000 UI/dia
+      SE exame_vitamina_d < 50 (ou exame nao realizado): dose 4000 UI/dia
+      Marcas: Addera D3 | Dprev | Vitafor Vita D3 | Essential Nutrition Vit D3 | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   9) Ferro bisglicinato
+      ATENCAO: demanda fetal por ferro aumenta bastante no 3o trimestre.
+      SE exame_ferritina >= 70: dose 40 mg ferro elementar/dia (prevencao — dose maior que nos trimestres anteriores)
+      SE exame_ferritina < 70 (ou anemia): dose 60 mg/dia
+      Marcas: Ferrochel Albion | Cheltin Ferr | Blutforte Folico | Natele Ferro | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   10) Vitamina B12 (dose aumentada se deficiencia)
+      SE exame_vitamina_b12 < 500: aumentar dose para 500-1000 mcg/dia (mesmas marcas do item 6 acima)
+
+   OPCAO ALTERNATIVA — III TRIMESTRE (multivitaminico completo):
+   Se a paciente preferir um unico produto: Regenesis Premium | Femibion 2 | Materna Nestle | Ogestan Gold
+   Neste caso, AINDA adicionar separadamente: DHA/EPA | Vitamina D | Magnesio | Colina | Ferro | Vitamina B12
+   (conforme doses e condicoes acima)
+
+   FORMULA BASE COMPLETA — III TRIMESTRE (sem deficiencias):
+   Metilfolato 400-600 mcg | Metilcobalamina 500 mcg | DHA 1000 mg | EPA 500 mg
+   Vitamina D3 2000 UI | Colina 450-500 mg | Magnesio bisglicinato 300-400 mg | Ferro bisglicinato 40 mg | Calcio 500-1000 mg
+
    IMPORTANTE: NAO inclua a frase "confirme com seu medico antes de iniciar qualquer suplemento".
    Este protocolo ja foi validado clinicamente pela Dra. Jessica D'Agostini.
 
