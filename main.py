@@ -1596,26 +1596,114 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - Desejo por doce: proteina + gordura boa nas refeicoes para estabilizar glicemia
    - Refluxo/azia (3o tri): evitar frituras, acidos, refeicoes grandes a noite
 
-6. SUPLEMENTACAO — PROTOCOLO OFICIAL DRA. JESSICA:
-   NAO mencione marcas especificas nem cupons no PDF — apenas oriente a buscar em lojas de suplementos ou farmacias de manipulacao.
+6. SUPLEMENTACAO — PROTOCOLO OFICIAL DRA. JESSICA D'AGOSTINI:
+   INCLUIR MARCAS, DOSES E LINK DA DUX conforme protocolo abaixo.
+   SEMPRE incluir o link da DUX como texto clicavel: https://www.duxhumanhealth.com
+   SEMPRE informar o cupom: PACJESSICADAGOSTINI (desconto especial para pacientes da Dra. Jessica).
+   NAO inclua a frase "confirme com seu medico" — o protocolo ja foi validado clinicamente.
 
-   REGRAS POR TRIMESTRE:
-   - 1o TRIMESTRE: Metilfolato 400mcg ao dia (nao acido folico comum — usar metilfolato).
-   - 2o e 3o TRIMESTRE: Polivitaminico especifico para gestantes.
-     Marcas indicadas: Regenesis, Ogestan, Femibion ou Feminis.
-     Posologia: conforme embalagem do fabricante de cada marca.
+   ═══════════ I TRIMESTRE ═══════════
 
-   SUPLEMENTOS CONDICIONAIS (somente se exame indicar necessidade):
-   - Vitamina D: suplementar SOMENTE SE exame abaixo de 50 ng/mL.
-     Marcas: Addera, DUX, Vitafor ou outras das marcas preferidas acima.
-   - Vitamina B12: suplementar SOMENTE SE exame abaixo de 600 pg/mL.
-     Marcas das preferidas acima.
-   - Ferro: suplementar SOMENTE SE ferritina abaixo de 70 ng/mL.
-     Marcas das preferidas acima.
+   SUPLEMENTOS BASE (sempre indicar, independente dos exames):
 
-   SUPLEMENTO SEMPRE INDICADO:
-   - Omega-3 DHA: seguro e importante para o desenvolvimento cerebral do bebe.
-     Marcas das preferidas acima.
+   1) Metilfolato (ou acido folico)
+      Dose: 400-600 mcg/dia
+      Marcas: Thorne Basic Prenatal | Pure Encapsulations Prenatal Nutrients | Natele Gest | Femibion 1
+
+   2) DHA (Omega-3)
+      Dose: 500-1000 mg DHA/dia
+      Marcas: Nordic Naturals Prenatal DHA | Essential Nutrition Super Omega TG | Vitafor Omegafor Mom | Nutrify Omega 3 TG | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   3) EPA
+      Dose: 300 mg/dia
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   4) Colina
+      Dose: 250-500 mg/dia
+      Marcas: Now Choline & Inositol | Thorne Prenatal | manipulado individualizado
+
+   5) Magnesio bisglicinato
+      Dose: 200-400 mg/dia
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   6) Metilcobalamina (B12)
+      Dose base: 500 mcg/dia
+      Marcas: Jarrow Methyl B12 | Now Methyl B12 | manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   SUPLEMENTOS CONDICIONAIS — I TRIMESTRE (ajustar dose conforme exame):
+
+   7) Vitamina D
+      SE exame_vitamina_d >= 50: dose 1000-2000 UI/dia (manutencao)
+      SE exame_vitamina_d < 50 (ou exame nao realizado): dose 4000 UI/dia (correcao de deficiencia)
+      Marcas: Addera D3 | Dprev | Vitafor Vita D3 | Essential Nutrition Vit D3 | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   8) Ferro bisglicinato
+      SE exame_ferritina >= 70: dose 30-40 mg ferro elementar/dia (prevencao)
+      SE exame_ferritina < 70 (ou ferritina baixa/anemia): dose 50-60 mg/dia
+      Marcas: Ferrochel Albion | Cheltin Ferr | Blutforte Folico | Natele Ferro | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   9) Vitamina B12 (dose aumentada se deficiencia)
+      SE exame_vitamina_b12 < 500: aumentar dose para 500-1000 mcg/dia (mesmas marcas do item 6 acima)
+
+   FORMULA BASE COMPLETA — I TRIMESTRE (sem deficiencias):
+   Metilfolato 400-600 mcg | Metilcobalamina 500 mcg | DHA 500-1000 mg | EPA 300 mg
+   Vitamina D3 2000 UI | Colina 250 mg | Magnesio bisglicinato 200 mg | Ferro bisglicinato 30 mg
+
+   ═══════════ II TRIMESTRE ═══════════
+
+   SUPLEMENTOS BASE (sempre indicar):
+
+   1) Metilfolato (ou acido folico)
+      Dose: 400-600 mcg/dia
+      Marcas: Thorne Basic Prenatal | Pure Encapsulations Prenatal Nutrients | Natele Gest | Femibion 2
+
+   2) DHA (Omega-3)
+      Dose: 700-1000 mg DHA/dia (dose maior que no 1o tri)
+      Marcas: Nordic Naturals Prenatal DHA | Essential Nutrition Super Omega TG | Vitafor Omegafor Mom | Nutrify Omega 3 TG | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   3) EPA
+      Dose: 300-500 mg/dia (modulacao inflamatoria e saude placentaria)
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   4) Colina
+      Dose: 350-500 mg/dia
+      Marcas: Now Choline & Inositol | Thorne Prenatal | manipulado individualizado | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   5) Magnesio bisglicinato
+      Dose: 300-400 mg/dia
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   6) Metilcobalamina (B12)
+      Dose base: 500 mcg/dia
+      Marcas: Jarrow Methyl B12 | Now Methyl B12 | manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   7) Calcio
+      Dose: 300-500 mg/dia (novo no 2o trimestre)
+      Marcas: manipulado individualizado | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   SUPLEMENTOS CONDICIONAIS — II TRIMESTRE (ajustar dose conforme exame):
+
+   8) Vitamina D
+      SE exame_vitamina_d >= 50: dose 2000 UI/dia
+      SE exame_vitamina_d < 50 (ou exame nao realizado): dose 4000 UI/dia
+      Marcas: Addera D3 | Dprev | Vitafor Vita D3 | Essential Nutrition Vit D3 | Puravida | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   9) Ferro bisglicinato
+      SE exame_ferritina >= 70: dose 30-40 mg ferro elementar/dia (prevencao)
+      SE exame_ferritina < 70 (ou anemia): dose 60 mg/dia
+      Marcas: Ferrochel Albion | Cheltin Ferr | Blutforte Folico | Natele Ferro | Puravida | Essential | Vitafor | DUX (https://www.duxhumanhealth.com - CUPOM: PACJESSICADAGOSTINI)
+
+   10) Vitamina B12 (dose aumentada se deficiencia)
+      SE exame_vitamina_b12 < 500: aumentar dose para 500-1000 mcg/dia (mesmas marcas do item 6 acima)
+
+   OPCAO ALTERNATIVA — II TRIMESTRE (multivitaminico completo):
+   Se a paciente preferir um unico produto: Regenesis Premium | Femibion 2 | Materna Nestle | Ogestan Gold
+   Neste caso, AINDA adicionar separadamente: DHA/EPA | Vitamina D | Magnesio | Colina | Ferro | Vitamina B12
+   (conforme doses e condicoes acima)
+
+   FORMULA BASE COMPLETA — II TRIMESTRE (sem deficiencias):
+   Metilfolato 400-600 mcg | Metilcobalamina 500 mcg | DHA 700-1000 mg | EPA 300-500 mg
+   Vitamina D3 2000 UI | Colina 350 mg | Magnesio bisglicinato 300 mg | Ferro bisglicinato 30-40 mg | Calcio 300-500 mg
 
    IMPORTANTE: NAO inclua a frase "confirme com seu medico antes de iniciar qualquer suplemento".
    Este protocolo ja foi validado clinicamente pela Dra. Jessica D'Agostini.
@@ -1720,10 +1808,11 @@ NAO MOSTRAR: TMB, fator de atividade, calorias de manutencao — esses sao dados
 Use os valores ja calculados acima — nao invente outros.
 
 ## SUPLEMENTACAO RECOMENDADA
-Siga o protocolo oficial da Dra. Jessica (regra 6 acima).
-Para cada suplemento indicado: nome, por que ela precisa (relacionando com os exames/sintomas dela), dose, como tomar.
-NAO mencione marcas especificas nem cupons de desconto — apenas diga que ela pode encontrar em lojas de suplementos ou farmácias de manipulacao.
-NAO inclua a frase "confirme com seu medico" — o protocolo ja foi validado clinicamente.
+Siga o protocolo oficial da Dra. Jessica (regra 6 acima) considerando o trimestre ({trimestre}o TRIMESTRE).
+Para cada suplemento: nome, motivo (relacionando com exames/sintomas dela), dose exata, como tomar, marcas recomendadas.
+SEMPRE incluir o link da DUX (https://www.duxhumanhealth.com) e o cupom PACJESSICADAGOSTINI quando DUX aparecer nas marcas.
+Use os valores dos exames ja informados para personalizar as doses condicionais (Vitamina D, Ferro, B12).
+NAO inclua a frase "confirme com seu medico" — o protocolo ja foi validado clinicamente pela Dra. Jessica D'Agostini.
 
 ---
 
