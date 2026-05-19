@@ -258,7 +258,8 @@ def render_texto_claude(texto, estilos):
       x item           → bullet vermelho (NAO FAZER)
       ATENCAO:         → paragrafo vermelho bold
       "citacao"        → estilo italico centralizado
-      ---              → quebra de pagina
+      ---              → linha separadora visual (NAO e quebra de pagina)
+      ===              → quebra de pagina explicita
       linha vazia      → espacador
       texto normal     → paragrafo justificado
     """
@@ -272,9 +273,18 @@ def render_texto_claude(texto, estilos):
             elements.append(sp(4))
             continue
 
-        # Quebra de pagina explicita
-        if linha_strip in ('---', '---PAGE---', '==='):
-            elements.append(PageBreak())
+        # Quebra de pagina APENAS com === ou ---PAGE---
+        if linha_strip in ('---PAGE---', '==='):
+            # Evita page break duplo (gera pagina em branco)
+            if elements and not isinstance(elements[-1], PageBreak):
+                elements.append(PageBreak())
+            continue
+
+        # --- e tratado como separador visual, NAO como quebra de pagina
+        if linha_strip == '---' or re.match(r'^-{3,}$', linha_strip):
+            elements.append(sp(6))
+            elements.append(HRFlowable(width='100%', thickness=0.5,
+                                       color=COR_DOURADA, spaceAfter=6))
             continue
 
         # Secao principal: ## Titulo
@@ -390,7 +400,8 @@ def gerar_pdf(dados, plano_texto):
     # ── Assinatura final ──────────────────────────────────────────────────────
     story.append(sp(12))
     story.append(Paragraph('Com amor,', estilos['normal']))
-    story.append(Paragraph('<b>Jessica D\'Agostini e Equipe Gestar Bem.</b>', estilos['normal']))
+    story.append(Paragraph('<b>Dra. Jessica D\'Agostini</b>', estilos['normal']))
+    story.append(Paragraph('Nutricionista | CRN 18978', estilos['normal']))
 
     doc.build(story, onFirstPage=draw_background, onLaterPages=draw_background)
 
