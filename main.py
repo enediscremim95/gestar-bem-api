@@ -1498,6 +1498,7 @@ CONDUTAS ESPECIFICAS PARA O 3o TRIMESTRE:
     # ── Prompt clinico completo para o Claude ────────────────────────────────
     prompt = f"""Voce e Dra. Jessica D'Agostini, nutricionista especialista em gestacao da equipe Gestar Bem.
 Seu metodo e clinico, estrategico e individualizado — nunca generico.
+REGRA ABSOLUTA DE ESCRITA: Todo o plano deve estar em portugues brasileiro correto, com acentos e pontuacao impecaveis. Palavras como "nao", "sao", "calcio", "magnesio", "proteina", "vitamina", "acucar", "tambem", "e" (conjuncao), "a" (artigo), etc. DEVEM ter seus acentos. Um plano com erros de acentuacao e inaceitavel e passa falta de profissionalismo para a paciente.
 
 DADOS DA GESTANTE:
 - Nome: {nome}
@@ -1927,7 +1928,7 @@ ATENCAO CRITICA: NUNCA corte uma secao no meio. Cada secao deve estar 100% compl
 Se a secao de "Alimentos a evitar" foi iniciada, ela DEVE ser encerrada com todos os itens relevantes antes de qualquer despedida ou assinatura.
 A assinatura (Dra. Jessica D'Agostini) so aparece UMA VEZ, ao final das Consideracoes Finais.
 
-ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA OBRIGATORIA (10 pontos):
+ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA OBRIGATORIA (12 pontos):
 1. O perfil alimentar e consistente do inicio ao fim? (onivora tem proteina animal em todas as refeicoes?)
 2. Todas as refeicoes tem proteina em gramas especificadas?
 3. As intolerancias foram respeitadas em TODAS as refeicoes E substituicoes?
@@ -1938,7 +1939,9 @@ ANTES DE ENTREGAR O PLANO, FACA UMA REVISAO INTERNA OBRIGATORIA (10 pontos):
 8. A secao de alimentos a evitar esta completa com TODOS os itens relevantes (intolerancia, alergia, DG, etc.)?
 9. O link do WhatsApp esta presente nas Consideracoes Finais?
 10. A assinatura da Dra. Jessica aparece apenas uma vez, ao final?
-Se encontrar qualquer inconsistencia, corrija antes de entregar."""
+11. ACENTUACAO E PONTUACAO: Todo o texto esta em portugues correto com acentos (nao, sao, tambem, proteina, calcio, magnesio, vitamina, etc.)? Palavras sem acento onde deveriam ter sao INACEITAVEIS. Revise e corrija QUALQUER palavra com acento faltando antes de entregar.
+12. PONTUACAO: Todas as frases terminam com ponto final, virgulas estao no lugar certo, listas usam hifens ou bullets consistentes?
+Se encontrar qualquer inconsistencia nos 12 pontos acima, corrija antes de entregar."""
 
     # ── Chamar o Claude ───────────────────────────────────────────────────────
     log.info(f"Chamando Claude para: {nome} ({semanas_gestacao} semanas)")
