@@ -935,12 +935,12 @@ def calcular_dados_clinicos(dados):
         if semanas <= 13:
             trimestre = "I"
             tri_nome  = "Primeiro Trimestre (semanas 1–13)"
-        elif semanas <= 26:
+        elif semanas <= 27:
             trimestre = "II"
-            tri_nome  = "Segundo Trimestre (semanas 14–26)"
+            tri_nome  = "Segundo Trimestre (semanas 13–27)"
         else:
             trimestre = "III"
-            tri_nome  = "Terceiro Trimestre (semanas 27–40)"
+            tri_nome  = "Terceiro Trimestre (semanas 27–41)"
 
         # TMB — Mifflin-St Jeor para mulheres
         tmb = (10 * peso) + (6.25 * alt) - (5 * idade) - 161
@@ -1437,7 +1437,7 @@ Padrao: 35% proteina / 40% carboidrato / 25% gordura."""
         # calculos falhou — extrair trimestre direto das semanas para nao errar o PDF de treino
         try:
             _s = _extrair_numero(dados.get('semanas_gestacao', '1'), inteiro=True)
-            trimestre_codigo = 'III' if _s > 26 else ('II' if _s > 13 else 'I')
+            trimestre_codigo = 'III' if _s > 27 else ('II' if _s > 13 else 'I')
         except Exception:
             trimestre_codigo = 'I'
 
@@ -1462,7 +1462,7 @@ CONDUTAS ESPECIFICAS PARA O 1o TRIMESTRE:
 - Tom da carta: acolher a vulnerabilidade e inseguranca do inicio da gestacao"""
 
     elif trimestre_codigo == 'II':
-        contexto_trimestre = """CONTEXTO DO 2o TRIMESTRE (semanas 14 a 26):
+        contexto_trimestre = """CONTEXTO DO 2o TRIMESTRE (semanas 13 a 27):
 E o trimestre do "renascimento" — os enjoos costumam diminuir,
 a energia volta e a barriga comeca a aparecer de forma bonita.
 E o melhor momento para estabelecer habitos solidos.
@@ -1479,7 +1479,7 @@ CONDUTAS ESPECIFICAS PARA O 2o TRIMESTRE:
 - Tom da carta: celebrar a fase de energia e estimular a construcao de habitos"""
 
     else:
-        contexto_trimestre = """CONTEXTO DO 3o TRIMESTRE (semanas 27 a 40):
+        contexto_trimestre = """CONTEXTO DO 3o TRIMESTRE (semanas 27 a 41):
 A reta final da gestacao. O bebe esta crescendo rapidamente e o corpo
 da mae esta se preparando para o parto. E normal sentir:
 - Maior dificuldade para comer grandes volumes (bebe ocupa espaco)
