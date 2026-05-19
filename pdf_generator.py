@@ -36,9 +36,9 @@ MARGEM         = 1.5 * cm
 HEADER_HEIGHT  = 4.5 * cm
 FOOTER_HEIGHT  = 1.1 * cm
 
-LOGO_RATIO = 2475 / 2730   # gestar_ilustracao.png  (2475x2730)
+LOGO_RATIO = 260 / 146     # gestar_ilustracao.png  (260x146 — largura/altura)
 GB_RATIO   = 1053 / 269    # gestar_bem_svg.png     (1053x269)
-WM_RATIO   = 3500 / 2475   # gestar_logo_transparente.png (3500x2475 — altura/largura)
+WM_RATIO   = 146 / 260     # gestar_logo_transparente.png (260x146 — altura/largura)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -55,7 +55,7 @@ def draw_background(canvas, doc):
     # Watermark (7% opacidade)
     if os.path.exists(LOGO_WATERMARK):
         canvas.setFillAlpha(0.07)
-        wm_w = 272.7
+        wm_w = 380.0
         wm_h = wm_w * WM_RATIO
         canvas.drawImage(
             LOGO_WATERMARK,
@@ -73,7 +73,7 @@ def draw_header(canvas, doc):
     canvas.saveState()
 
     # Icone ilustracao
-    logo_h = 99.2
+    logo_h = 65.0
     logo_w = logo_h * LOGO_RATIO
     logo_x = MARGEM
     logo_y = PAGE_H - logo_h - 2
