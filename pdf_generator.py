@@ -124,7 +124,7 @@ def draw_footer(canvas, doc):
     canvas.setFillColor(COR_FOOTER)
     canvas.drawCentredString(
         PAGE_W / 2, FOOTER_HEIGHT / 2 - 2,
-        '(41) 99992-0539  |  @gestarbem_j'
+        '(41) 99992-0539  |  @gestarbem_'
     )
 
     canvas.restoreState()
