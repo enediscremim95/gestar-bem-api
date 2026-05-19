@@ -1926,7 +1926,7 @@ Se a paciente NAO tiver diabetes gestacional, NAO inclua esses alertas.
 Encerramento com encorajamento especifico para o momento do trimestre,
 lembretes dos pontos mais importantes do plano.
 Inclua ao final uma secao de contato com o seguinte texto exato (adaptando apenas o nome da paciente):
-"Duvidas? Fale com a equipe Gestar Bem pelo WhatsApp: https://wa.me/554199920539"
+"Duvidas? Me chama no WhatsApp: https://wa.me/554199920539"
 O link deve aparecer como texto clicavel no PDF.
 Ao final de tudo, a assinatura obrigatoria e exata:
 Dra. Jessica D'Agostini
