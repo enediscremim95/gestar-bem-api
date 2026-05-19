@@ -945,18 +945,19 @@ def calcular_dados_clinicos(dados):
         # TMB — Mifflin-St Jeor para mulheres
         tmb = (10 * peso) + (6.25 * alt) - (5 * idade) - 161
 
-        # Fator de atividade
+        # Fator de atividade (protocolo oficial Dra. Jessica)
+        # Sedentaria=1.2 | Iniciante=1.37 | Intermediario=1.55 | Avancado=1.7
         if 'sedent' in nivel:
-            fator = 1.2;   fator_nome = "Sedentaria (x1,2)"
+            fator = 1.2;  fator_nome = "Sedentaria (x1,2)"
         elif 'leve' in nivel or 'iniciante' in nivel:
-            fator = 1.375; fator_nome = "Levemente ativa (x1,375)"
+            fator = 1.37; fator_nome = "Levemente ativa / Iniciante (x1,37)"
         elif 'moder' in nivel or 'intermedi' in nivel:
-            fator = 1.55;  fator_nome = "Moderadamente ativa (x1,55)"
+            fator = 1.55; fator_nome = "Moderadamente ativa / Intermediaria (x1,55)"
         elif 'avan' in nivel or 'intens' in nivel:
-            fator = 1.725; fator_nome = "Muito ativa (x1,725)"
+            fator = 1.7;  fator_nome = "Muito ativa / Avancada (x1,7)"
         else:
-            log.warning(f"nivel_exercicio nao reconhecido: '{nivel}' — usando fallback 1.375")
-            fator = 1.375; fator_nome = "Levemente ativa (x1,375)"
+            log.warning(f"nivel_exercicio nao reconhecido: '{nivel}' — usando fallback 1.37")
+            fator = 1.37; fator_nome = "Levemente ativa / Iniciante (x1,37)"
 
         manutencao = tmb * fator
 
@@ -1029,10 +1030,11 @@ def calcular_dados_clinicos(dados):
                 )
                 meta_peso = "ganho de 3,5 a 4 kg neste trimestre"
 
-        # Detectar DG para ajuste de macros (40% prot / 35% carb / 25% gord)
+        # Detectar DG ou Percentil Baixo para macros especiais (40% prot / 35% carb / 25% gord)
         quadros    = str(dados.get('quadros_clinicos', '')).lower()
         glicose_rw = dados.get('exame_glicose', '')
-        tem_dg     = 'diabetes gestacional' in quadros
+        tem_dg          = 'diabetes gestacional' in quadros
+        tem_percentil_b = 'percentil' in quadros or 'restricao de crescimento' in quadros or 'crescimento fetal' in quadros
         if not tem_dg and glicose_rw:
             try:
                 if _extrair_numero(glicose_rw) >= 92:
@@ -1040,7 +1042,7 @@ def calcular_dados_clinicos(dados):
             except Exception:
                 pass
 
-        if tem_dg:
+        if tem_dg or tem_percentil_b:
             prot_pct  = 0.40; carb_pct = 0.35; gord_pct = 0.25
             macro_label = "DG/Percentil baixo: 40% prot / 35% carb / 25% gord"
         else:
@@ -1075,6 +1077,8 @@ def calcular_dados_clinicos(dados):
             "meta_peso":      meta_peso,
             "trimestre":      trimestre,
             "tri_nome":       tri_nome,
+            "tem_dg":         tem_dg,
+            "tem_percentil_b": tem_percentil_b,
         }
 
     except Exception as e:
@@ -1411,6 +1415,8 @@ CALCULOS CLINICOS JA REALIZADOS (use estes valores exatos no plano):
 - Carboidrato: {calculos['carb_g']}g/dia ({calculos['carb_pct']}% das calorias)
 - Gordura: {calculos['gord_g']}g/dia ({calculos['gord_pct']}% das calorias)
 - Meta de agua: {calculos['agua_l']}L/dia
+- DIABETES GESTACIONAL: {"SIM — APLICAR PROTOCOLO DG COMPLETO (medicoes de glicose em cada refeicao, macros 40/35/25)" if calculos['tem_dg'] else "NAO"}
+- PERCENTIL BAIXO / RESTRICAO DE CRESCIMENTO FETAL: {"SIM — macros 40/35/25" if calculos['tem_percentil_b'] else "NAO"}
 
 REGRAS ABSOLUTAS PARA A SECAO DE CALCULOS NO PDF:
 1. MOSTRAR apenas: IMC + categoria, peso ideal para gestar, calorias do plano, macros em g e %, meta de agua, meta de peso.
@@ -1895,9 +1901,10 @@ As substituicoes devem ser coerentes com o perfil alimentar da paciente (ver reg
 NUNCA coloque substituicao vegetariana se o perfil da paciente e onivoro — mantenha proteina animal.
 NUNCA coloque carne/frango se a paciente for vegetariana ou tiver intolerancia informada.
 
-REGRA ESPECIAL — DIABETES GESTACIONAL (somente se glicose >= 92 mg/dL):
-Se a paciente tiver diabetes gestacional, inclua os seguintes alertas de medicao em vermelho
-EXATAMENTE nestes momentos do plano, usando o marcador "ATENCAO:" para cada um:
+REGRA ESPECIAL — DIABETES GESTACIONAL:
+Se o campo "DIABETES GESTACIONAL: SIM" estiver nos calculos acima, OBRIGATORIAMENTE inclua
+os seguintes alertas de medicao EXATAMENTE nestes momentos do plano, usando o marcador "ATENCAO:":
+Esta regra e ABSOLUTA — plano de DG sem alertas de medicao e INACEITAVEL.
 
 Antes do Cafe da manha:
 ATENCAO: Medicao em jejum — objetivo: menos de 95 mg/dL
@@ -1921,6 +1928,9 @@ lembretes dos pontos mais importantes do plano.
 Inclua ao final uma secao de contato com o seguinte texto exato (adaptando apenas o nome da paciente):
 "Duvidas? Fale com a equipe Gestar Bem pelo WhatsApp: https://wa.me/554199920539"
 O link deve aparecer como texto clicavel no PDF.
+Ao final de tudo, a assinatura obrigatoria e exata:
+Dra. Jessica D'Agostini
+Nutricionista | CRN 18978
 
 Gere o plano COMPLETO, detalhado e personalizado. Minimo de 2000 palavras.
 Use os calculos clinicos ja fornecidos — nao recalcule, nao mude os valores.
