@@ -39,6 +39,8 @@ FOOTER_HEIGHT  = 1.1 * cm
 LOGO_RATIO = 260 / 146     # gestar_ilustracao.png  (260x146 — largura/altura)
 GB_RATIO   = 1053 / 269    # gestar_bem_svg.png     (1053x269)
 WM_RATIO   = 146 / 260     # gestar_logo_transparente.png (260x146 — altura/largura)
+# NOTA: logo antiga era 2475x2730 (quase quadrada). Nova e 260x146 (paisagem).
+# Ajuste de tamanhos feito em 20/05/2026 para compensar nova proporcao.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -55,11 +57,13 @@ def draw_background(canvas, doc):
     # Watermark (7% opacidade)
     if os.path.exists(LOGO_WATERMARK):
         canvas.setFillAlpha(0.07)
-        wm_w = 380.0
+        wm_w = PAGE_W - 60  # quase full-width
         wm_h = wm_w * WM_RATIO
+        wm_x = (PAGE_W - wm_w) / 2
+        wm_y = (PAGE_H - wm_h) / 2  # centralizado verticalmente na pagina
         canvas.drawImage(
             LOGO_WATERMARK,
-            (PAGE_W - wm_w) / 2, FOOTER_HEIGHT,
+            wm_x, wm_y,
             width=wm_w, height=wm_h, mask='auto'
         )
         canvas.setFillAlpha(1.0)
@@ -72,8 +76,8 @@ def draw_background(canvas, doc):
 def draw_header(canvas, doc):
     canvas.saveState()
 
-    # Icone ilustracao
-    logo_h = 65.0
+    # Icone ilustracao — logo nova 260x146 (paisagem), aumentar altura
+    logo_h = 85.0
     logo_w = logo_h * LOGO_RATIO
     logo_x = MARGEM
     logo_y = PAGE_H - logo_h - 2
@@ -85,11 +89,11 @@ def draw_header(canvas, doc):
             mask='auto', preserveAspectRatio=True
         )
 
-    # "Gestar Bem" cursiva
-    gb_h = 82.0
+    # "Gestar Bem" cursiva — reduzida para nao sair da borda
+    gb_h = 55.0
     gb_w = gb_h * GB_RATIO
     gb_x = logo_x + logo_w + 0.3 * cm
-    gb_y = logo_y
+    gb_y = logo_y + (logo_h - gb_h) / 2  # centralizado verticalmente com a logo
 
     if os.path.exists(GESTAR_BEM_SCRIPT):
         canvas.drawImage(
