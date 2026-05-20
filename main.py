@@ -2171,6 +2171,24 @@ def painel():
     return html, 200
 
 
+@app.route('/reset-scheduler')
+def reset_scheduler():
+    """Reinicia o APScheduler sem precisar de redeploy. Util apos outages."""
+    token = request.args.get('token', '')
+    if token != os.environ.get('PAINEL_TOKEN', '1902'):
+        return jsonify({"erro": "nao autorizado"}), 403
+    try:
+        global scheduler
+        scheduler.remove_job('verificar_fila')
+        scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila',
+                          max_instances=1, coalesce=True)
+        prox = scheduler.get_job('verificar_fila').next_run_time
+        log.info("Scheduler resetado manualmente via /reset-scheduler")
+        return jsonify({"status": "ok", "mensagem": "scheduler resetado", "proxima_execucao": str(prox)}), 200
+    except Exception as e:
+        return jsonify({"status": "erro", "detalhe": str(e)}), 500
+
+
 @app.route('/health')
 def health():
     """
