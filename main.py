@@ -903,6 +903,24 @@ def calcular_dados_clinicos(dados):
         # Detectar inversão e dados suspeitos — alerta para a equipe
         alertas_dados = []
 
+        # Semanas parecendo altura — ex: paciente coloca 1.65 no campo de semanas
+        semanas_raw = str(dados.get('semanas_gestacao', '')).strip().replace(',', '.')
+        try:
+            semanas_float = float(semanas_raw.split()[0])
+            if 1.30 <= semanas_float <= 2.20:
+                alertas_dados.append(
+                    f"Semanas de gestação informadas ({semanas_raw}) parecem ser a ALTURA da paciente em metros. "
+                    f"O plano foi gerado com semanas={semanas} (arredondado), mas pode estar errado. "
+                    f"Confirme com a paciente qual é a semana correta de gestação."
+                )
+            elif semanas > 42:
+                alertas_dados.append(
+                    f"Semanas de gestação informadas ({semanas}) estão acima de 42 semanas — valor impossível. "
+                    f"Pode ser altura em cm (ex: 165cm) colocada no campo errado. Confirme com a paciente."
+                )
+        except Exception:
+            pass
+
         # Caso clássico: peso e altura invertidos (ex: peso=170, altura=60)
         if (140 <= peso <= 220) and (alt < 100):
             log.warning(f"Possivel inversao peso/altura: peso={peso}, alt={alt} — corrigindo")
