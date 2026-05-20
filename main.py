@@ -1050,15 +1050,32 @@ def calcular_dados_clinicos(dados):
 
         # Detectar DG ou Percentil Baixo para macros especiais (40% prot / 35% carb / 25% gord)
         quadros    = str(dados.get('quadros_clinicos', '')).lower()
+        observ_dg  = str(dados.get('observacoes', '')).lower() + str(dados.get('preferencia', '')).lower()
         glicose_rw = dados.get('exame_glicose', '')
-        tem_dg          = 'diabetes gestacional' in quadros
-        tem_percentil_b = 'percentil' in quadros or 'restricao de crescimento' in quadros or 'crescimento fetal' in quadros
-        if not tem_dg and glicose_rw:
-            try:
-                if _extrair_numero(glicose_rw) >= 92:
-                    tem_dg = True
-            except Exception:
-                pass
+        hba1c_rw   = dados.get('exame_hemoglobina_glicada', '')
+        totg_rw    = dados.get('exame_totg', '')
+
+        tem_dg = ('diabetes gestacional' in quadros or 'diabetes gestacional' in observ_dg
+                  or 'dg' in quadros.split())
+
+        tem_percentil_b = ('percentil' in quadros or 'restricao de crescimento' in quadros
+                           or 'crescimento fetal' in quadros)
+
+        # Detectar DG pelos valores dos exames (paciente pode nao saber que tem)
+        if not tem_dg:
+            for valor_rw, limiar, descricao in [
+                (glicose_rw, 92, 'glicose em jejum'),
+                (hba1c_rw,  6.5, 'hemoglobina glicada'),
+                (totg_rw,   140, 'TOTG'),
+            ]:
+                if valor_rw:
+                    try:
+                        if _extrair_numero(valor_rw) >= limiar:
+                            tem_dg = True
+                            log.info(f"[DG] Detectado via {descricao}={valor_rw} para {dados.get('nome','?')}")
+                            break
+                    except Exception:
+                        pass
 
         if tem_dg or tem_percentil_b:
             prot_pct  = 0.40; carb_pct = 0.35; gord_pct = 0.25
@@ -1599,8 +1616,11 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
 
 1. ANALISE DE EXAMES E QUADROS CLINICOS:
    DETECCAO DE DIABETES GESTACIONAL: aplique as condutas de DG se QUALQUER uma das condicoes abaixo for verdadeira:
-   a) "DIABETES GESTACIONAL" aparece no campo "Quadros clinicos relatados pela paciente"
-   b) Glicose em jejum >= 92 mg/dL (se valor informado em texto)
+   a) "DIABETES GESTACIONAL" aparece no campo "Quadros clínicos relatados pela paciente" ou Observações
+   b) Glicose em jejum >= 92 mg/dL (campo RESULTADOS DE EXAMES acima)
+   c) Hemoglobina glicada (HbA1c) >= 6,5% (campo RESULTADOS DE EXAMES acima)
+   d) TOTG 2h >= 140 mg/dL (campo RESULTADOS DE EXAMES acima)
+   ATENÇÃO: a paciente pode ter DG e NÃO SABER — confie nos valores dos exames, não apenas no que ela declarou
    Se DG confirmado: plano com controle glicemico rigoroso, reducao de carboidratos simples,
    ceia obrigatoria, alertas de medicao em vermelho (ver regra especial DG).
    - Glicose 90-91 mg/dL (se valor informado) → Risco: dieta preventiva com controle de carboidratos simples
