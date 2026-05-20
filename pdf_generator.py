@@ -90,7 +90,7 @@ def draw_header(canvas, doc):
         )
 
     # "Gestar Bem" cursiva — reduzida para nao sair da borda
-    gb_h = 63.0
+    gb_h = 70.0
     gb_w = gb_h * GB_RATIO
     gb_x = logo_x + logo_w + 0.3 * cm
     gb_y = logo_y + (logo_h - gb_h) / 2  # centralizado verticalmente com a logo
