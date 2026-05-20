@@ -1872,7 +1872,7 @@ NAO MOSTRAR: TMB, fator de atividade, calorias de manutencao — esses sao dados
 Use os valores ja calculados acima — nao invente outros.
 
 ## SUPLEMENTACAO RECOMENDADA
-Siga o protocolo oficial da Dra. Jessica (regra 6 acima) considerando o trimestre ({trimestre}o TRIMESTRE).
+Siga o protocolo oficial da Dra. Jessica (regra 6 acima) considerando o trimestre ({trimestre_codigo}o TRIMESTRE).
 Para cada suplemento: nome, motivo (relacionando com exames/sintomas dela), dose exata, como tomar, marcas recomendadas.
 SEMPRE incluir o link da DUX (https://www.duxhumanhealth.com) e o cupom PACJESSICADAGOSTINI quando DUX aparecer nas marcas.
 Use os valores dos exames ja informados para personalizar as doses condicionais (Vitamina D, Ferro, B12).
