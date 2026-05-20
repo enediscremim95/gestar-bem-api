@@ -107,7 +107,7 @@ def draw_header(canvas, doc):
     canvas.setFont('Helvetica', 9)
     canvas.setFillColor(COR_CINZA)
     canvas.drawCentredString(PAGE_W / 2, tagline_y,
-                             'Se cuidar e o melhor presente para seu bebe.')
+                             'Se cuidar é o melhor presente para seu bebê.')
 
     # Linha dourada separadora
     canvas.setStrokeColor(COR_DOURADA)
