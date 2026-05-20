@@ -1415,6 +1415,35 @@ def _gerar_plano_interno(dados):
             log.info(f"[VISION] {len(valores_vision)} valor(es) extraído(s) para {nome}: {list(valores_vision.keys())}")
             dados.update(valores_vision)  # enriquece dados com valores reais dos exames
 
+    # ── Bloco de resultados de exames (Vision + texto) para injetar no prompt ──
+    def _val(campo):
+        v = dados.get(campo, '')
+        return str(v).strip() if v else ''
+
+    bloco_exames = f"""
+RESULTADOS DE EXAMES LABORATORIAIS DA PACIENTE (use estes valores para personalizar doses):
+- Glicose em jejum:       {_val('exame_glicose') or 'não informado'}
+- Hemoglobina glicada:    {_val('exame_hemoglobina_glicada') or 'não informado'}
+- Insulina em jejum:      {_val('exame_insulina_jejum') or 'não informado'}
+- TOTG:                   {_val('exame_totg') or 'não informado'}
+- Hemograma:              {_val('exame_hemograma') or 'não informado'}
+- Ferritina:              {_val('exame_ferritina') or 'não informado'}
+- Ferro sérico:           {_val('exame_ferro_serico') or 'não informado'}
+- Saturação de transferrina: {_val('exame_sat_transferrina') or 'não informado'}
+- Vitamina D:             {_val('exame_vitamina_d') or 'não informado'}
+- Vitamina B12:           {_val('exame_vitamina_b12') or 'não informado'}
+- TSH:                    {_val('exame_tsh') or 'não informado'}
+- T4 livre:               {_val('exame_t4_livre') or 'não informado'}
+- Ácido fólico:           {_val('exame_acido_folico') or 'não informado'}
+- Cálcio:                 {_val('exame_calcio') or 'não informado'}
+- Magnésio:               {_val('exame_magnesio') or 'não informado'}
+- Zinco:                  {_val('exame_zinco') or 'não informado'}
+- Creatinina:             {_val('exame_creatinina') or 'não informado'}
+- Colesterol total:       {_val('exame_colesterol') or 'não informado'}
+- Triglicerídeos:         {_val('exame_triglicerideos') or 'não informado'}
+IMPORTANTE: quando "não informado", aplique a dose preventiva padrão do protocolo e escreva "Como você não realizou esse exame, vamos trabalhar com a dose preventiva padrão."
+"""
+
     # Calculos clinicos automaticos
     calculos = calcular_dados_clinicos(dados)
 
@@ -1440,7 +1469,7 @@ REGRAS ABSOLUTAS PARA A SECAO DE CALCULOS NO PDF:
 1. MOSTRAR apenas: IMC + categoria, peso ideal para gestar, calorias do plano, macros em g e %, meta de agua, meta de peso.
 2. NAO mostrar: TMB, fator de atividade fisica, calorias de manutencao — sao dados internos de calculo, confundem a paciente.
 3. Apresente as calorias do plano como "o valor ideal para nutrir voce e o bebe com seguranca neste trimestre" — SEM mencionar deficit, reducao ou corte.
-4. A meta de peso deve ser apresentada conforme o protocolo: para sobrepeso no 1o tri, dizer que o objetivo e perder peso de forma segura e gradual.
+4. A meta de peso deve ser apresentada conforme o protocolo: para sobrepeso no 1o tri, dizer que o objetivo é um controle de peso seguro para a gestação. EXCECAO: se a paciente mencionou em "Preferência" ou "Observações" que NÃO quer emagrecer ou tem resistência ao emagrecimento, respeite e reformule como "manter o peso estável neste trimestre, priorizando a saúde do bebê" — nunca imponha emagrecimento a quem não quer.
 5. Nunca use as palavras "deficit", "reducao calorica" ou "corte de calorias" no PDF."""
     else:
         bloco_calculos = """
@@ -1561,6 +1590,8 @@ DADOS DA GESTANTE:
 - Preferencia da paciente: {preferencia}
 
 {bloco_calculos}
+
+{bloco_exames}
 
 {contexto_trimestre}
 
