@@ -2073,7 +2073,14 @@ def painel():
     linhas_html = ''
     for reg in registros:
         rid, nome, email, agendado, processado, tentativas, processado_em, erro = reg
-        status = '✅ Enviado' if processado and not erro else (f'⚠️ Tentativas: {tentativas}' if not processado else '❌ Falhou')
+        if processado and not erro:
+            status = '✅ Enviado'
+        elif processado and erro:
+            status = '❌ Falhou'
+        elif not processado and tentativas == 0:
+            status = '🕐 Agendado'
+        else:
+            status = f'⚠️ Tentativas: {tentativas}'
         cor    = linha_cor(processado, tentativas, erro)
         ag_str = agendado.strftime('%d/%m %H:%M') if agendado else '-'
         pr_str = processado_em.strftime('%d/%m %H:%M') if processado_em else '-'
