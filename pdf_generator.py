@@ -220,9 +220,15 @@ def secao(titulo, estilos):
 
 
 def apply_inline_markup(text):
-    """Converte **negrito** e *italico* para tags ReportLab."""
+    """Converte **negrito**, *italico* e URLs clicaveis para tags ReportLab."""
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
+    # URLs clicaveis — detecta http(s):// fora de tags já existentes
+    text = re.sub(
+        r'(?<!href=")(https?://[^\s\)\]<>"]+)',
+        r'<a href="\1" color="#7B1FA2">\1</a>',
+        text
+    )
     return text
 
 
