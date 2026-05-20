@@ -304,6 +304,21 @@ def render_texto_claude(texto, estilos):
             elements.append(Paragraph(f'<b>{titulo}</b>', estilos['subtitulo']))
             continue
 
+        # Sub-opcao: #### Titulo (ex: opcoes de lanche)
+        if linha_strip.startswith('#### '):
+            titulo = linha_strip[5:].strip()
+            titulo = apply_inline_markup(titulo)
+            elements.append(sp(4))
+            elements.append(Paragraph(f'<b>{titulo}</b>', estilos['dados']))
+            continue
+
+        # Sub-sub-opcao: ##### Titulo
+        if linha_strip.startswith('##### '):
+            titulo = linha_strip[6:].strip()
+            titulo = apply_inline_markup(titulo)
+            elements.append(Paragraph(f'<i>{titulo}</i>', estilos['normal']))
+            continue
+
         # Bullet verde (FAZER): + item
         if linha_strip.startswith('+ '):
             conteudo = apply_inline_markup(linha_strip[2:].strip())
@@ -402,10 +417,8 @@ def gerar_pdf(dados, plano_texto):
     story += render_texto_claude(plano_texto, estilos)
 
     # ── Assinatura final ──────────────────────────────────────────────────────
+    # NAO adicionar assinatura fixa — Claude ja gera o fechamento com assinatura
     story.append(sp(12))
-    story.append(Paragraph('Com amor,', estilos['normal']))
-    story.append(Paragraph('<b>Dra. Jessica D\'Agostini</b>', estilos['normal']))
-    story.append(Paragraph('Nutricionista | CRN 18978', estilos['normal']))
 
     doc.build(story, onFirstPage=draw_background, onLaterPages=draw_background)
 

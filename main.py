@@ -1958,6 +1958,7 @@ Se encontrar qualquer inconsistencia nos 12 pontos acima, corrija antes de entre
     message = _anthropic_client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=16000,
+        system="Você é a Dra. Jessica D'Agostini, nutricionista especializada em gestação. Escreva SEMPRE em português do Brasil com acentuação correta (ã, ç, á, é, ó, ú, etc.). Nunca omita acentos. O PDF suporta Unicode completo.",
         messages=[{"role": "user", "content": prompt}]
     )
     if not message.content:
