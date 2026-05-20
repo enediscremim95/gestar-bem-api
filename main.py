@@ -1190,9 +1190,25 @@ def _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_n
         log.error(f"Erro ao enviar alerta exame errado: {e}")
 
 
+def _detectar_mime_type(img_bytes: bytes) -> str:
+    """
+    Detecta o tipo MIME real do arquivo a partir dos magic bytes.
+    Suporta PDF, JPEG, PNG e WebP. Padrão: image/jpeg.
+    """
+    if img_bytes[:4] == b'%PDF':
+        return 'application/pdf'
+    if img_bytes[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if img_bytes[:4] == b'RIFF' and img_bytes[8:12] == b'WEBP':
+        return 'image/webp'
+    return 'image/jpeg'
+
+
 def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
     """
-    Processa imagens de exames salvas no banco com Claude Vision.
+    Processa imagens de exames salvas no banco com Claude Vision/PDF.
     Extrai valores, confere nome do paciente e retorna {campo: valor}.
     """
     conn = get_db()
@@ -1216,21 +1232,36 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
             img_b64 = base64.b64encode(bytes(imagem_bytes)).decode('utf-8')
             label   = campo.replace('img_', '').replace('_', ' ').upper()
 
+            # Monta o bloco de conteúdo correto conforme o tipo do arquivo
+            if mime_type == 'application/pdf':
+                content_block = {
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf", "data": img_b64}
+                }
+                max_tok = 400  # PDFs podem ter vários exames numa página
+            else:
+                content_block = {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": mime_type, "data": img_b64}
+                }
+                max_tok = 200
+
             msg = _anthropic_client.messages.create(
                 model="claude-haiku-4-5",
-                max_tokens=150,
+                max_tokens=max_tok,
                 messages=[{"role": "user", "content": [
-                    {"type": "image",
-                     "source": {"type": "base64", "media_type": mime_type, "data": img_b64}},
+                    content_block,
                     {"type": "text",
                      "text": (
-                         f"Resultado de exame laboratorial. Extraia:\n"
-                         f"1. Nome completo do paciente no exame\n"
-                         f"2. Valor numerico do exame: {label}\n"
-                         f"3. Unidade de medida\n\n"
-                         f"Responda APENAS em JSON:\n"
+                         f"Documento de resultado de exame laboratorial.\n"
+                         f"Extraia as seguintes informações:\n"
+                         f"1. Nome completo do paciente\n"
+                         f"2. Valor numérico do exame: {label}\n"
+                         f"3. Unidade de medida desse exame\n\n"
+                         f"Se for um PDF com múltiplos exames, procure especificamente por: {label}.\n"
+                         f"Responda APENAS em JSON, sem texto adicional:\n"
                          f'{{\"nome\": \"...\", \"valor\": \"...\", \"unidade\": \"...\"}}\n'
-                         f"Use null se nao encontrar."
+                         f"Use null se não encontrar o campo."
                      )}
                 ]}]
             )
@@ -1322,11 +1353,12 @@ def gerar_plano():
         for campo_img, b64_str in imagens_exame.items():
             try:
                 img_bytes = base64.b64decode(b64_str)
+                mime_type_detectado = _detectar_mime_type(img_bytes)
                 cur.execute("""
                     INSERT INTO exames_imagens (plano_id, campo, imagem_bytes, mime_type)
                     VALUES (%s, %s, %s, %s)
-                """, (plano_id, campo_img, img_bytes, 'image/jpeg'))
-                log.info(f"Imagem {campo_img} salva para plano {plano_id} ({len(img_bytes)//1024}KB)")
+                """, (plano_id, campo_img, img_bytes, mime_type_detectado))
+                log.info(f"Imagem {campo_img} salva para plano {plano_id} ({len(img_bytes)//1024}KB, {mime_type_detectado})")
             except Exception as e:
                 log.warning(f"Erro ao salvar imagem {campo_img}: {e}")
 
