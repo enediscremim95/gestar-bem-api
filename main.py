@@ -225,7 +225,7 @@ def verificar_fila():
             cur2  = conn2.cursor()
             cur2.execute("""
                 UPDATE planos_agendados
-                SET processado = TRUE, processado_em = NOW()
+                SET processado = TRUE, processado_em = NOW(), erro = NULL
                 WHERE id = %s
             """, (job_id,))
             conn2.commit()
@@ -390,7 +390,8 @@ def _enviar_email_aguarde_paciente(dados):
     email_paciente = dados.get('email', '').strip()
     if not email_paciente or '@' not in email_paciente:
         return
-    nome = dados.get('nome', 'Paciente')
+    nome     = dados.get('nome', 'Paciente')
+    nome_html = _html.escape(nome)
     corpo_txt = (
         f"Olá, {nome}!\n\n"
         "Recebemos seu formulário do Gestar Bem com sucesso.\n\n"
@@ -402,7 +403,7 @@ def _enviar_email_aguarde_paciente(dados):
     )
     corpo_html = f"""
 <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#333;">
-  <h2 style="color:#7B1FA2;">Olá, {nome}!</h2>
+  <h2 style="color:#7B1FA2;">Olá, {nome_html}!</h2>
   <p>Recebemos seu formulário do <strong>Gestar Bem</strong> com sucesso.</p>
   <p>Durante a análise das suas informações, identificamos que alguns dados precisam ser
   confirmados para que possamos montar seu plano com total segurança e precisão.</p>
@@ -683,12 +684,13 @@ Seu plano personalizado do programa Gestar Bem está pronto!
 
 Em anexo você encontra o seu Plano de Nutrição completo, preparado especialmente para você com muito carinho e cuidado.{bloco_treino_txt}
 
-—————————————————————————
+=========================================================
 Leia com atenção e siga as orientações. Qualquer dúvida, fale com nossa equipe.
 
 Com carinho,
 Equipe Gestar Bem 🌸"""
 
+    nome_paciente_html = _html.escape(nome_paciente)
     corpo_html = f"""<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:Arial,sans-serif;background:#fdf6ff;margin:0;padding:0;">
@@ -697,7 +699,7 @@ Equipe Gestar Bem 🌸"""
     <h1 style="color:#fff;font-size:22px;margin:0;">Gestar Bem 🌸</h1>
   </div>
   <div style="padding:28px;">
-    <p style="font-size:16px;color:#333;">Olá, <strong>{nome_paciente}</strong>! 💜</p>
+    <p style="font-size:16px;color:#333;">Olá, <strong>{nome_paciente_html}</strong>! 💜</p>
     <p style="color:#555;font-size:14px;line-height:1.6;">Seu plano personalizado do programa Gestar Bem está pronto!</p>
     <p style="color:#555;font-size:14px;line-height:1.6;">Em anexo você encontra o seu <strong>Plano de Nutrição completo</strong>, preparado especialmente para você com muito carinho e cuidado.{bloco_treino_html}</p>
     <hr style="border:none;border-top:1px solid #e0d0f0;margin:24px 0;">
@@ -797,7 +799,10 @@ def servir_treino_por_token(token):
     if not row:
         abort(404)
     pdf_path = row[0]
-    full_path = os.path.join(PDF_BASE, pdf_path.replace('/', os.sep))
+    full_path = os.path.normpath(os.path.join(PDF_BASE, pdf_path.replace('/', os.sep)))
+    # Impede path traversal: garante que o arquivo esta dentro de PDF_BASE
+    if not full_path.startswith(os.path.abspath(PDF_BASE) + os.sep):
+        abort(403)
     directory = os.path.dirname(full_path)
     filename  = os.path.basename(full_path)
     if not os.path.isfile(full_path):
