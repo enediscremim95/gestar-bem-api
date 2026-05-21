@@ -258,7 +258,7 @@ def apply_inline_markup(text):
         partes.append(f'<a href="{url_escaped}" color="#7B1FA2">{url_escaped}</a>')
         return PLACEHOLDER.format(idx)
 
-    restante = re.sub(r'(?<!href=")(https?://[^\s\)\]<>"]+)', substituir_url, restante)
+    restante = re.sub(r'(?<!href=")(https?://[^\s\]<>"]+)', substituir_url, restante)
 
     # Passo 2: escapar o texto restante (fora das marcacoes)
     restante = _html.escape(restante)
@@ -308,11 +308,11 @@ def render_texto_claude(texto, estilos):
       ### Subtitulo    → negrito escuro
       - item           → bullet normal
       + item           → bullet verde (FAZER)
-      x item           → bullet vermelho (NAO FAZER)
+      X item           → bullet vermelho (NAO FAZER) — deve ser MAIUSCULO para nao capturar palavras com x
       ATENCAO:         → paragrafo vermelho bold
       "citacao"        → estilo italico centralizado
       ---              → linha separadora visual (NAO e quebra de pagina)
-      ===              → quebra de pagina explicita
+      ===              → quebra de pagina explicita (unico marcador valido)
       linha vazia      → espacador
       texto normal     → paragrafo justificado
     """
@@ -326,8 +326,8 @@ def render_texto_claude(texto, estilos):
             elements.append(sp(4))
             continue
 
-        # Quebra de pagina APENAS com === ou ---PAGE---
-        if linha_strip in ('---PAGE---', '==='):
+        # Quebra de pagina com ===
+        if linha_strip == '===':
             # Evita page break duplo (gera pagina em branco)
             if elements and not isinstance(elements[-1], PageBreak):
                 elements.append(PageBreak())
@@ -375,8 +375,8 @@ def render_texto_claude(texto, estilos):
             elements.append(sp(2))
             continue
 
-        # Bullet vermelho (NAO FAZER): x item
-        if linha_strip.lower().startswith('x ') and len(linha_strip) > 2:
+        # Bullet vermelho (NAO FAZER): X item (maiusculo obrigatorio para nao capturar palavras iniciadas com x)
+        if linha_strip.startswith('X ') and len(linha_strip) > 2:
             conteudo = apply_inline_markup(linha_strip[2:].strip())
             elements.append(Paragraph(f'X  {conteudo}', estilos['bullet_vermelho']))
             elements.append(sp(2))

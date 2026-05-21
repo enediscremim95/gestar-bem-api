@@ -30,6 +30,9 @@ app.config['MAX_CONTENT_LENGTH'] = 60 * 1024 * 1024  # 60MB — suporta ~20 imag
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Fuso horário de Brasília (UTC-3) — usado em exibições de data/hora no painel e relatórios
+TZ_SP = timezone(timedelta(hours=-3))
+
 # Cliente Anthropic — criado uma vez na inicializacao do servidor
 # timeout=300s: mesmo padrao do gunicorn, evita thread pendurada para sempre
 _anthropic_client = anthropic.Anthropic(
@@ -92,7 +95,8 @@ MAX_RODADAS           = 3
 MAX_TENTATIVAS_TOTAL  = TENTATIVAS_POR_RODADA * MAX_RODADAS  # 9
 INTERVALO_RODADA_H    = 2  # horas de espera entre rodadas
 
-# Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
+# Delay em horas antes de enviar o plano.
+# Produção usa 48h via env var DELAY_HORAS. Fallback de 5 min (0.083) só é ativado se a env var estiver ausente.
 try:
     DELAY_HORAS = float(os.environ.get('DELAY_HORAS', '0.083'))
 except (ValueError, TypeError):
@@ -379,8 +383,8 @@ PRÓXIMOS PASSOS
 3. Acesse o painel e use "Reprocessar" no plano #{job_id} com os dados corrigidos
    (ou peça que ela preencha o formulário novamente)
 
-Painel: https://painel.programagestarbem.com.br/painel?token=1902
-Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}
+Painel: https://painel.programagestarbem.com.br/painel?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
+Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
 """
 
     dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
@@ -457,8 +461,8 @@ Tentativas: {tentativas}
 Ultimo erro: {erro[:300]}
 
 Acesse o painel para verificar os logs e reprocessar manualmente se necessário.
-Painel: https://painel.programagestarbem.com.br/painel?token=1902
-Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}"""
+Painel: https://painel.programagestarbem.com.br/painel?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
+Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}"""
     dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
     _enviar_email_sg(dest, f"⚠️ FALHA: Plano de {nome} não entregue", corpo)
 
@@ -557,8 +561,7 @@ def check_diario():
         with urllib.request.urlopen(req_sg, timeout=15) as resp:
             stats     = json.loads(resp.read().decode())
             emails_sg = stats[0]['stats'][0]['metrics']['emails_sent'] if stats and stats[0].get('stats') else 0
-        pct = emails_sg  # limite diario do free tier e 100 emails
-        linhas.append(f"SendGrid: {emails_sg}/100 emails hoje ({pct}%)")
+        linhas.append(f"SendGrid: {emails_sg}/100 emails hoje")
         if emails_sg >= 80:
             alertas.append(f"⚠️ SendGrid: {emails_sg}/100 emails usados — proximo do limite diario")
             if emoji_geral == "✅":
@@ -777,20 +780,27 @@ TREINOS_DOMAIN = "treinos.programagestarbem.com.br"
 MAX_IMG_B64 = 15 * 1024 * 1024  # 15 MB em base64 (~11 MB decoded)
 
 
-def criar_token_treino(pdf_path, label, email='', dias=90):
-    """Cria token único para acesso a um PDF de treino. Retorna a URL completa."""
+def criar_token_treino(pdf_path, label, email='', dias=90, conn=None):
+    """
+    Cria token único para acesso a um PDF de treino. Retorna a URL completa.
+    Se `conn` for fornecida, usa-a sem abrir/fechar (útil para batch de múltiplos PDFs).
+    """
     token = secrets.token_urlsafe(14)  # ~19 chars URL-safe
     expires = datetime.now(timezone.utc) + timedelta(days=dias)
-    conn = get_db()
+    _owns_conn = conn is None
+    if _owns_conn:
+        conn = get_db()
     try:
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO treino_tokens (token, pdf_path, label, email, expires_at)
             VALUES (%s, %s, %s, %s, %s)
         """, (token, pdf_path, label, email, expires))
-        conn.commit()
+        if _owns_conn:
+            conn.commit()
     finally:
-        conn.close()
+        if _owns_conn:
+            conn.close()
     return f"https://{TREINOS_DOMAIN}/t/{token}"
 
 
@@ -927,13 +937,21 @@ def selecionar_pdfs_exercicio(dados, trimestre):
 def selecionar_links_exercicio(dados, trimestre, email=''):
     """
     Wrapper que chama selecionar_pdfs_exercicio e gera tokens únicos para cada PDF.
+    Usa uma única conexão para todos os PDFs (evita N conexões para N PDFs).
     Retorna ([(url_tokenizada, label), ...], nao_liberada).
     """
     pdfs, nao_liberada = selecionar_pdfs_exercicio(dados, trimestre)
     links = []
-    for rel_path, label in pdfs:
-        url = criar_token_treino(rel_path, label, email=email)
-        links.append((url, label))
+    if not pdfs:
+        return links, nao_liberada
+    conn = get_db()
+    try:
+        for rel_path, label in pdfs:
+            url = criar_token_treino(rel_path, label, email=email, conn=conn)
+            links.append((url, label))
+        conn.commit()
+    finally:
+        conn.close()
     return links, nao_liberada
 
 
@@ -1802,8 +1820,9 @@ PROTOCOLO CLINICO — REGRAS QUE VOCE SEGUE RIGOROSAMENTE:
    - SOP / ENDOMETRIOSE → anti-inflamatorio, baixo glicemico
    - Vitamina D < 50 → Indicar suplementacao (ver protocolo de suplementacao) + alimentos fontes (sardinha, ovos, funghi)
    - Vitamina D >= 50 → NAO indicar suplemento de vitamina D
-   - B12 < 600 → Indicar suplementacao (ver protocolo) — especialmente se vegetariana/vegana
-   - B12 >= 600 → NAO indicar suplemento de B12
+   - B12: SEMPRE indicar suplemento (e suplemento base de manutencao para todas as pacientes)
+     - B12 < 500 → dose aumentada (ver protocolo de suplementacao)
+     - B12 >= 500 → dose padrao de manutencao (ver protocolo de suplementacao)
    - Ferritina < 70 → Estrategia alimentar com ferro heme + vitamina C + indicar suplemento de ferro
    - Ferritina >= 70 → NAO indicar suplemento de ferro
 
@@ -2077,7 +2096,7 @@ INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automa
 ### Subtitulo → negrito escuro
 - item de lista → bullet normal
 + item positivo → bullet VERDE (coisas para FAZER)
-x item negativo → bullet VERMELHO (coisas para NAO FAZER)
+X item negativo → bullet VERMELHO (coisas para NAO FAZER) — SEMPRE com X maiusculo
 ATENCAO: texto → alerta vermelho em negrito
 "texto entre aspas" → italico centralizado roxo (para citacoes biblicas)
 === → quebra de pagina (use entre secoes grandes para comecar numa nova pagina)
@@ -2354,7 +2373,7 @@ def painel():
             <td><a href="/painel/detalhes/{rid}?token={token_safe}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
         </tr>"""
 
-    agora = datetime.now(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y %H:%M')
+    agora = datetime.now(TZ_SP).strftime('%d/%m/%Y %H:%M')
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
