@@ -14,7 +14,7 @@ Fator atividade:
 """
 
 import os, logging, re, threading, base64, json, traceback, atexit, time, secrets, html as _html
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
@@ -753,12 +753,6 @@ Equipe Gestar Bem 🌸"""
 
 PDF_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
 
-def _base_url():
-    """URL base do servidor (Railway usa RAILWAY_PUBLIC_DOMAIN)."""
-    dominio = os.environ.get('RAILWAY_PUBLIC_DOMAIN', 'web-production-94437.up.railway.app')
-    return f"https://{dominio}"
-
-
 TREINOS_DOMAIN = "treinos.programagestarbem.com.br"
 
 
@@ -1025,13 +1019,13 @@ def calcular_dados_clinicos(dados):
         # Corrigir erros de digitação comuns (ex: 985 no lugar de 98,5)
         if peso > 200:
             peso_original = peso
-            while peso > 200:
-                peso = peso / 10
+            fator = 10 ** (len(str(int(peso))) - 2)  # ex: 985 → fator=10 → 98.5
+            peso = peso / fator
             log.warning(f"Peso corrigido automaticamente: {peso_original} -> {peso:.1f}kg (provavel erro de digitacao)")
         if alt > 220:
             alt_original = alt
-            while alt > 220:
-                alt = alt / 10
+            fator = 10 ** (len(str(int(alt))) - 3)  # ex: 1650 → fator=10 → 165.0
+            alt = alt / fator
             log.warning(f"Altura corrigida automaticamente: {alt_original} -> {alt:.1f}cm (provavel erro de digitacao)")
 
         # ── Alertas suspeitos (avisa mas gera o plano normalmente) ────────────
@@ -1415,14 +1409,6 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
 
 # ── Endpoint principal ───────────────────────────────────────────────────────
 
-@app.route('/treino/<path:filename>')
-def servir_treino(filename):
-    """Serve os PDFs de treino publicamente via link."""
-    caminho = os.path.abspath(os.path.join(PDF_BASE, filename))
-    if not caminho.startswith(os.path.abspath(PDF_BASE)):
-        abort(403)
-    return send_from_directory(PDF_BASE, filename)
-
 
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
 
@@ -1461,8 +1447,12 @@ def gerar_plano():
         plano_id = cur.fetchone()[0]
 
         # Salvar imagens de exames vinculadas ao plano
+        MAX_IMG_B64 = 15 * 1024 * 1024  # 15 MB em base64 (~11 MB decoded)
         for campo_img, b64_str in imagens_exame.items():
             try:
+                if len(b64_str) > MAX_IMG_B64:
+                    log.warning(f"[IMAGEM] {campo_img} excede limite ({len(b64_str)//1024}KB base64) — ignorando")
+                    continue
                 img_bytes = base64.b64decode(b64_str)
                 mime_type_detectado = _detectar_mime_type(img_bytes)
                 cur.execute("""
@@ -1514,6 +1504,10 @@ def _processar_em_background(dados):
             with app.app_context():
                 _gerar_plano_interno(dados)
             log.info(f"[BG] Concluido com sucesso para {nome}")
+            return
+        except DadosInvalidosError as e:
+            # Dados inválidos: não adianta retentativa, encerra imediatamente
+            log.error(f"[BG] Dados inválidos para {nome} ({email}) — sem retry: {e}")
             return
         except Exception:
             log.error(f"[BG] Erro na tentativa {tentativa}/{MAX_TENTATIVAS_BG} para {nome} ({email}): {traceback.format_exc()}")
@@ -2210,7 +2204,12 @@ Se encontrar qualquer inconsistencia nos 12 pontos acima, corrija antes de entre
 
 @app.route('/testar-email', methods=['POST'])
 def testar_email():
-    """Testa o envio de email sem gerar plano completo."""
+    """Testa o envio de email sem gerar plano completo. Protegido por PAINEL_TOKEN."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return jsonify({"status": "erro", "mensagem": "Acesso negado"}), 403
+
     dados = request.get_json() or {}
     destinatario = dados.get('email', '').strip()
     nome_teste   = dados.get('nome', 'Teste')
@@ -2255,7 +2254,7 @@ def painel():
                                  AND (proxima_tentativa IS NULL OR proxima_tentativa <= NOW())) AS pendentes,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)                  AS com_falha,
                 COUNT(*) FILTER (WHERE processado = TRUE
-                                 AND (erro IS NULL OR erro NOT LIKE 'DADOS_INVALIDOS%'))       AS concluidos,
+                                 AND erro IS NULL)                                             AS concluidos,
                 COUNT(*) FILTER (WHERE erro LIKE 'DADOS_INVALIDOS%')                           AS dados_invalidos
             FROM planos_agendados
         """)
@@ -2280,7 +2279,8 @@ def painel():
         registros = cur.fetchall()
         cur.close()
     except Exception as e:
-        return f'<h2>Erro ao consultar banco: {e}</h2>', 500
+        log.error(f"[PAINEL] Erro ao consultar banco: {e}")
+        return '<h2 style="font-family:sans-serif;color:#c00">Erro interno. Tente novamente em instantes.</h2>', 500
     finally:
         if conn:
             conn.close()
@@ -2585,14 +2585,15 @@ def painel_buscar():
         registros = cur.fetchall()
         cur.close()
     except Exception as e:
-        return f'<h2>Erro: {e}</h2>', 500
+        log.error(f"[PAINEL/BUSCAR] Erro ao consultar banco: {e}")
+        return '<h2 style="font-family:sans-serif;color:#c00">Erro interno. Tente novamente em instantes.</h2>', 500
     finally:
         if conn: conn.close()
 
     if not registros:
         conteudo = f"""
         <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
-        <h3 style="color:#9B27AF">Nenhum registro encontrado para: {email_busca}</h3>"""
+        <h3 style="color:#9B27AF">Nenhum registro encontrado para: {_html.escape(email_busca)}</h3>"""
         return _painel_html_base(token_recebido, conteudo), 200
 
     nome_paciente = registros[-1][1] or email_busca
@@ -2602,25 +2603,37 @@ def painel_buscar():
     linhas = ''
     for i, reg in enumerate(registros):
         rid, nome, email, semanas, peso, complic, sintomas, medic, processado, tentativas, criado_em = reg
-        status   = '✅' if processado else f'⚠️ {tentativas}x'
-        data_str = criado_em.strftime('%d/%m/%Y') if criado_em else '-'
-        tri      = 'III' if semanas and int(''.join(filter(str.isdigit, semanas or '0')) or '0') > 26 else ('II' if semanas and int(''.join(filter(str.isdigit, semanas or '0')) or '0') > 13 else 'I')
+        # Escape de todos os campos que vêm do banco (preenchidos pelas pacientes)
+        semanas_s = _html.escape(str(semanas or '-'))
+        peso_s    = _html.escape(str(peso    or '-'))
+        complic_s = _html.escape((complic  or '-')[:60])
+        sintomas_s= _html.escape((sintomas or '-')[:60])
+        medic_s   = _html.escape((medic    or '-')[:40])
+        status    = '✅' if processado else f'⚠️ {tentativas}x'
+        data_str  = criado_em.strftime('%d/%m/%Y') if criado_em else '-'
+        try:
+            sw = int(''.join(filter(str.isdigit, semanas or '0')) or '0')
+        except Exception:
+            sw = 0
+        tri = 'III' if sw > 27 else ('II' if sw > 13 else 'I')
         linhas  += f"""
         <tr>
           <td>{data_str}</td>
-          <td>{semanas or '-'} sem &nbsp;<span style="color:#9B27AF;font-size:11px">{tri}º tri</span></td>
-          <td>{peso or '-'} kg</td>
-          <td style="font-size:12px">{(complic or '-')[:60]}</td>
-          <td style="font-size:12px">{(sintomas or '-')[:60]}</td>
-          <td style="font-size:12px">{(medic or '-')[:40]}</td>
+          <td>{semanas_s} sem &nbsp;<span style="color:#9B27AF;font-size:11px">{tri}º tri</span></td>
+          <td>{peso_s} kg</td>
+          <td style="font-size:12px">{complic_s}</td>
+          <td style="font-size:12px">{sintomas_s}</td>
+          <td style="font-size:12px">{medic_s}</td>
           <td>{status}</td>
           <td><a href="/painel/detalhes/{rid}?token={token_recebido}" title="Ver detalhes" style="color:#9B27AF;font-size:18px;text-decoration:none;">👁</a></td>
         </tr>"""
 
+    nome_paciente_s = _html.escape(str(nome_paciente))
+    email_busca_s   = _html.escape(email_busca)
     conteudo = f"""
     <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
-    <h2 style="color:#9B27AF;margin-bottom:4px">🌸 {nome_paciente}</h2>
-    <p style="color:#888;font-size:13px;margin-top:0">{email_busca} &nbsp;|&nbsp; {len(registros)} envio(s) &nbsp;|&nbsp; Peso inicial: {peso_inicial}kg → Atual: {peso_atual}kg</p>
+    <h2 style="color:#9B27AF;margin-bottom:4px">🌸 {nome_paciente_s}</h2>
+    <p style="color:#888;font-size:13px;margin-top:0">{email_busca_s} &nbsp;|&nbsp; {len(registros)} envio(s) &nbsp;|&nbsp; Peso inicial: {_html.escape(str(peso_inicial))}kg → Atual: {_html.escape(str(peso_atual))}kg</p>
     <table>
       <thead><tr>
         <th>Data</th><th>Semanas</th><th>Peso</th><th>Complicações</th><th>Sintomas</th><th>Medicamentos</th><th>Status</th><th></th>
@@ -2647,7 +2660,8 @@ def painel_detalhes(job_id):
         row = cur.fetchone()
         cur.close()
     except Exception as e:
-        return f'<h2>Erro: {e}</h2>', 500
+        log.error(f"[PAINEL/DETALHES] Erro ao consultar banco: {e}")
+        return '<h2 style="font-family:sans-serif;color:#c00">Erro interno. Tente novamente em instantes.</h2>', 500
     finally:
         if conn: conn.close()
 
@@ -2677,7 +2691,7 @@ def painel_detalhes(job_id):
     for chave, label in CAMPOS_LABELS:
         valor = dados.get(chave, '')
         if valor:
-            linhas += f'<tr><td class="label">{label}</td><td class="valor">{valor}</td></tr>'
+            linhas += f'<tr><td class="label">{_html.escape(str(label))}</td><td class="valor">{_html.escape(str(valor))}</td></tr>'
 
     if processado and not erro:
         status = '✅ Enviado com sucesso'
@@ -2687,18 +2701,20 @@ def painel_detalhes(job_id):
         status = f'❌ Falhou após {tentativas}x'
     else:
         status = f'⚠️ {tentativas} tentativa(s)'
-    data_str = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
-    email_enc = dados.get('email', '')
+    data_str  = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
+    nome_s    = _html.escape(nome)
+    email_enc = urllib.parse.quote(dados.get('email', ''), safe='')
     voltar_busca = f"/painel/buscar?token={token_recebido}&email={email_enc}"
+    erro_s    = _html.escape(erro) if erro else ''
 
     conteudo = f"""
-    <a href="{voltar_busca}" class="btn-voltar">← Voltar ao histórico de {nome}</a>
+    <a href="{voltar_busca}" class="btn-voltar">← Voltar ao histórico de {nome_s}</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{data_str} &nbsp;|&nbsp; {status}</p>
     <table style="max-width:700px">
       <tbody>{linhas}</tbody>
     </table>
-    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro + '</p>' if erro else ''}"""
+    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro else ''}"""
 
     return _painel_html_base(token_recebido, conteudo), 200
 

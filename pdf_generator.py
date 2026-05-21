@@ -4,7 +4,7 @@ pdf_generator.py — Gestar Bem
 Gera o PDF do plano personalizado com layout identico ao modelo aprovado.
 Chamado pelo main.py do Replit com os dados do formulario e o texto do Claude.
 """
-import os, io, re, base64
+import os, io, re, base64, unicodedata
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
@@ -237,7 +237,7 @@ def calcular_trimestre(semanas_str):
         s = int(str(semanas_str).strip().split()[0])
         if s <= 13:
             return "I TRIMESTRE"
-        elif s <= 26:
+        elif s <= 27:
             return "II TRIMESTRE"
         else:
             return "III TRIMESTRE"
@@ -246,8 +246,12 @@ def calcular_trimestre(semanas_str):
 
 
 def nome_arquivo_pdf(nome, semanas_str):
-    """Gera nome de arquivo seguro para o PDF."""
-    nome_limpo = re.sub(r'[^A-Za-z\s]', '', nome).strip().replace(' ', '_')
+    """Gera nome de arquivo seguro para o PDF, preservando acentos normalizados."""
+    # Normaliza Unicode → ASCII (ex: "Lúcia" → "Lucia")
+    nome_ascii = unicodedata.normalize('NFKD', nome).encode('ascii', 'ignore').decode('ascii')
+    nome_limpo = re.sub(r'[^A-Za-z\s]', '', nome_ascii).strip().replace(' ', '_')
+    if not nome_limpo:
+        nome_limpo = 'Paciente'
     trimestre = calcular_trimestre(semanas_str).replace(' ', '_')
     return f"{nome_limpo}_{trimestre}.pdf"
 
