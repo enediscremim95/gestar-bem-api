@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, logging, re, threading, base64, json, traceback, atexit, time, secrets, html as _html
+import os, logging, re, threading, base64, json, traceback, atexit, time, secrets, html as _html, unicodedata
 import urllib.request, urllib.error, urllib.parse
 from datetime import datetime, timedelta, timezone
 
@@ -143,9 +143,10 @@ def init_db():
             ADD COLUMN IF NOT EXISTS proxima_tentativa TIMESTAMP
         """)
         # Indice para o agendador nao fazer full-scan a cada minuto
+        # Cobre tanto o filtro por agendado_para quanto por proxima_tentativa (retentativas)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_fila_pendente
-            ON planos_agendados (agendado_para)
+            ON planos_agendados (agendado_para, proxima_tentativa)
             WHERE processado = FALSE
         """)
         # Tabela de tokens para links de treino personalizados
@@ -511,7 +512,7 @@ def check_diario():
         enviados_24h = row[2]
         linhas.append(f"Banco: OK | Enviados hoje: {enviados_24h} | Pendentes: {pendentes} | Com falha: {com_falha}")
         if com_falha > 0:
-            alertas.append(f"⚠️ {com_falha} plano(s) com falha — verificar logs no Railway")
+            alertas.append(f"⚠️ {com_falha} plano(s) com falha — verificar logs no Fly.io ou no painel")
             emoji_geral = "⚠️"
     except Exception as e:
         linhas.append(f"Banco: ERRO — {str(e)[:100]}")
@@ -564,7 +565,7 @@ def check_diario():
             emoji_geral = "🔴"
         elif '401' in err_str or 'invalid' in err_str or 'auth' in err_str:
             linhas.append("Anthropic API: CHAVE INVALIDA")
-            alertas.append("🔴 URGENTE: ANTHROPIC_API_KEY invalida — verificar no Railway")
+            alertas.append("🔴 URGENTE: ANTHROPIC_API_KEY invalida — verificar secrets no Fly.io")
             emoji_geral = "🔴"
         else:
             linhas.append(f"Anthropic API: erro ({str(e)[:80]})")
@@ -754,6 +755,8 @@ Equipe Gestar Bem 🌸"""
 PDF_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
 
 TREINOS_DOMAIN = "treinos.programagestarbem.com.br"
+
+MAX_IMG_B64 = 15 * 1024 * 1024  # 15 MB em base64 (~11 MB decoded)
 
 
 def criar_token_treino(pdf_path, label, email='', dias=90):
@@ -1161,7 +1164,7 @@ def calcular_dados_clinicos(dados):
         totg_rw    = dados.get('exame_totg', '')
 
         tem_dg = ('diabetes gestacional' in quadros or 'diabetes gestacional' in observ_dg
-                  or 'dg' in quadros.split())
+                  or bool(re.search(r'\bdg\b', quadros)))
 
         tem_percentil_b = ('percentil' in quadros or 'restricao de crescimento' in quadros
                            or 'crescimento fetal' in quadros)
@@ -1245,7 +1248,6 @@ CAMPOS_EXAME_IMAGEM = {
 
 
 def _normalizar_nome(nome):
-    import unicodedata
     return unicodedata.normalize('NFD', nome or '').encode('ascii', 'ignore').decode().lower().strip()
 
 
@@ -1259,9 +1261,6 @@ def _nomes_batem(nome_forms, nome_exame):
 
 
 def _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_no_exame):
-    sg_key = os.environ.get('SENDGRID_API_KEY', '')
-    remetente = 'planosgestarbem@gmail.com'
-    destinatarios = [d.strip() for d in os.environ.get('EMAIL_ALERTA', remetente).split(',')]
     campo_legivel = campo.replace('img_', '').replace('_', ' ').upper()
     corpo = (
         f"ATENCAO: exame com nome diferente detectado!\n\n"
@@ -1274,25 +1273,10 @@ def _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_n
         f"Entre em contato pelo WhatsApp e peca o exame correto.\n"
         f"Apos receber, acesse o painel e reprocesse o plano."
     )
-    if not sg_key:
-        return
-    payload = {
-        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
-        "subject": f"EXAME DE OUTRA PESSOA — {nome_paciente} (plano #{plano_id})",
-        "content": [{"type": "text/plain", "value": corpo}],
-    }
-    try:
-        req = urllib.request.Request(
-            "https://api.sendgrid.com/v3/mail/send",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        urllib.request.urlopen(req, timeout=15)
+    dest = [d.strip() for d in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if d.strip()]
+    ok = _enviar_email_sg(dest, f"EXAME DE OUTRA PESSOA — {nome_paciente} (plano #{plano_id})", corpo)
+    if ok:
         log.info(f"Alerta exame errado enviado — plano {plano_id}")
-    except Exception as e:
-        log.error(f"Erro ao enviar alerta exame errado: {e}")
 
 
 def _detectar_mime_type(img_bytes: bytes) -> str:
@@ -1332,6 +1316,8 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
         return {}
 
     valores = {}
+    updates = []  # [(nome_exame, valor_extraido, unidade, alerta, img_id)]
+
     for (img_id, campo, imagem_bytes, mime_type) in rows:
         try:
             img_b64 = base64.b64encode(bytes(imagem_bytes)).decode('utf-8')
@@ -1371,7 +1357,13 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
                 ]}]
             )
 
-            r = json.loads(msg.content[0].text.strip())
+            try:
+                r = json.loads(msg.content[0].text.strip())
+            except json.JSONDecodeError:
+                log.warning(f"[VISION] Claude retornou resposta não-JSON para {campo} plano={plano_id}: {msg.content[0].text[:100]}")
+                updates.append((None, None, None, False, img_id))
+                continue
+
             nome_exame     = r.get('nome')
             valor_extraido = r.get('valor')
             unidade        = r.get('unidade')
@@ -1383,17 +1375,7 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
                              f"paciente='{nome_paciente}' exame='{nome_exame}'")
                 _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_exame)
 
-            conn2 = get_db()
-            try:
-                cur2 = conn2.cursor()
-                cur2.execute(
-                    "UPDATE exames_imagens SET nome_extraido=%s, valor_extraido=%s, "
-                    "unidade=%s, alerta_nome=%s, processado=TRUE WHERE id=%s",
-                    (nome_exame, valor_extraido, unidade, alerta, img_id)
-                )
-                conn2.commit()
-            finally:
-                conn2.close()
+            updates.append((nome_exame, valor_extraido, unidade, alerta, img_id))
 
             if not alerta and valor_extraido:
                 campo_destino = CAMPOS_EXAME_IMAGEM.get(campo)
@@ -1403,6 +1385,25 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
 
         except Exception as e:
             log.warning(f"[VISION] Erro ao processar {campo} plano={plano_id}: {e}")
+            updates.append((None, None, None, False, img_id))
+
+    # Batch update — uma única conexão para todos os resultados
+    if updates:
+        conn_upd = get_db()
+        try:
+            cur_upd = conn_upd.cursor()
+            for (nome_exame, valor_extraido, unidade, alerta, img_id) in updates:
+                cur_upd.execute(
+                    "UPDATE exames_imagens SET nome_extraido=%s, valor_extraido=%s, "
+                    "unidade=%s, alerta_nome=%s, processado=TRUE WHERE id=%s",
+                    (nome_exame, valor_extraido, unidade, alerta, img_id)
+                )
+            conn_upd.commit()
+            cur_upd.close()
+        except Exception as e:
+            log.error(f"[VISION] Erro no batch update de exames plano={plano_id}: {e}")
+        finally:
+            conn_upd.close()
 
     return valores
 
@@ -1447,7 +1448,6 @@ def gerar_plano():
         plano_id = cur.fetchone()[0]
 
         # Salvar imagens de exames vinculadas ao plano
-        MAX_IMG_B64 = 15 * 1024 * 1024  # 15 MB em base64 (~11 MB decoded)
         for campo_img, b64_str in imagens_exame.items():
             try:
                 if len(b64_str) > MAX_IMG_B64:
@@ -1519,15 +1519,9 @@ def _processar_em_background(dados):
 
 def _gerar_plano_interno(dados):
 
-    # Validar email ANTES de qualquer processamento caro (Claude + PDF)
-    email = dados.get('email', '').strip()
-    if not email:
-        log.warning(f"[INTERNO] Email vazio para '{dados.get('nome', 'Paciente')}' — abortando sem chamar Claude")
-        return
-
     # Extrair campos do formulario
     nome               = dados.get('nome', 'Paciente')
-    # email ja extraido e validado acima
+    email              = dados.get('email', '').strip()
     pais               = dados.get('pais', 'Brasil')
     idade              = dados.get('idade', '')
     altura             = dados.get('altura', '')
