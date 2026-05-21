@@ -13,7 +13,7 @@ Fator atividade:
   Avancada/Intensa = 1.725
 """
 
-import os, logging, re, threading, base64, json, traceback, atexit, time, secrets
+import os, logging, re, threading, base64, json, traceback, atexit, time, secrets, html as _html
 import urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 
@@ -40,6 +40,49 @@ _anthropic_client = anthropic.Anthropic(
 class DadosInvalidosError(Exception):
     """Levantada quando os dados do formulário têm erro crítico que impede gerar o plano."""
     pass
+
+
+def _enviar_email_sg(destinatarios, assunto, corpo_txt, corpo_html=None,
+                     nome_remetente='Gestar Bem — Sistema'):
+    """
+    Helper central para envio de email via SendGrid.
+    `destinatarios` pode ser str (um dest) ou list[str].
+    Retorna True se enviou com sucesso, False se falhou.
+    """
+    sg_key = os.environ.get('SENDGRID_API_KEY', '')
+    if not sg_key:
+        log.error(f"[EMAIL] SENDGRID_API_KEY não configurado — não foi possível enviar: {assunto[:60]}")
+        return False
+    if isinstance(destinatarios, str):
+        destinatarios = [destinatarios]
+    destinatarios = [d for d in destinatarios if d and '@' in d]
+    if not destinatarios:
+        log.error(f"[EMAIL] Nenhum destinatário válido para: {assunto[:60]}")
+        return False
+
+    content = [{"type": "text/plain", "value": corpo_txt}]
+    if corpo_html:
+        content.append({"type": "text/html", "value": corpo_html})
+
+    payload = {
+        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
+        "from":    {"email": "planosgestarbem@gmail.com", "name": nome_remetente},
+        "subject": assunto,
+        "content": content,
+    }
+    try:
+        req = urllib.request.Request(
+            "https://api.sendgrid.com/v3/mail/send",
+            data=json.dumps(payload).encode('utf-8'),
+            headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=30)
+        log.info(f"[EMAIL] '{assunto[:60]}' → {destinatarios}")
+        return True
+    except Exception as ex:
+        log.error(f"[EMAIL] Falha ao enviar '{assunto[:60]}': {ex}")
+        return False
 
 
 # Tentativas por rodada e numero de rodadas antes de desistir
@@ -291,19 +334,7 @@ def verificar_fila():
 
 
 def _enviar_alerta_dados_invalidos(job_id, dados, problemas):
-    """
-    Notifica responsáveis quando o plano foi BLOQUEADO por dados inválidos.
-    Email inclui contato da paciente e instrução clara para ligar/mensagem e coletar dados corretos.
-    """
-    sg_key = os.environ.get('SENDGRID_API_KEY', '')
-    if not sg_key:
-        log.error("[INVALIDO] SENDGRID_API_KEY não configurado")
-        return
-
-    remetente = 'planosgestarbem@gmail.com'
-    destinatarios_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
-    destinatarios = [e.strip() for e in destinatarios_str.split(',') if e.strip()]
-
+    """Notifica responsáveis quando o plano foi BLOQUEADO por dados inválidos."""
     nome     = dados.get('nome', '?')
     email    = dados.get('email', '?')
     whatsapp = dados.get('whatsapp', dados.get('telefone', 'não informado'))
@@ -349,42 +380,25 @@ Painel: https://painel.programagestarbem.com.br/painel?token=1902
 Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}
 """
 
-    payload = {
-        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
-        "subject": f"🚫 PLANO BLOQUEADO — Dados inválidos — {nome}",
-        "content": [{"type": "text/plain", "value": corpo}],
-    }
-
-    try:
-        req = urllib.request.Request(
-            "https://api.sendgrid.com/v3/mail/send",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        urllib.request.urlopen(req, timeout=30)
-        log.info(f"[INVALIDO] Alerta enviado para {destinatarios} — plano {job_id} / {nome}")
-    except Exception as ex:
-        log.error(f"[INVALIDO] Falha ao enviar alerta: {ex}")
+    dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+    _enviar_email_sg(dest, f"🚫 PLANO BLOQUEADO — Dados inválidos — {nome}", corpo)
 
 
 def _enviar_email_aguarde_paciente(dados):
-    """
-    Envia email simples para a paciente avisando que os dados precisam ser confirmados
-    e que alguém da equipe entrará em contato em breve.
-    """
-    sg_key = os.environ.get('SENDGRID_API_KEY', '')
-    if not sg_key:
-        return
-
+    """Avisa a paciente que os dados precisam ser confirmados e a equipe entrará em contato."""
     email_paciente = dados.get('email', '').strip()
     if not email_paciente or '@' not in email_paciente:
-        return  # sem email válido, não há o que enviar
-
+        return
     nome = dados.get('nome', 'Paciente')
-    remetente = 'planosgestarbem@gmail.com'
-
+    corpo_txt = (
+        f"Olá, {nome}!\n\n"
+        "Recebemos seu formulário do Gestar Bem com sucesso.\n\n"
+        "Durante a análise das suas informações, identificamos que alguns dados precisam ser "
+        "confirmados para que possamos montar seu plano com total segurança e precisão.\n\n"
+        "Alguém da nossa equipe entrará em contato em breve pelo WhatsApp ou email "
+        "para confirmar os dados e garantir que seu plano seja personalizado corretamente para você.\n\n"
+        "Com carinho,\nEquipe Gestar Bem\nDra. Jessica D'Agostini e equipe"
+    )
     corpo_html = f"""
 <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#333;">
   <h2 style="color:#7B1FA2;">Olá, {nome}!</h2>
@@ -396,58 +410,18 @@ def _enviar_email_aguarde_paciente(dados):
   <p style="margin-top:24px;">Com carinho,<br>
   <strong>Equipe Gestar Bem</strong><br>
   <em>Dra. Jessica D'Agostini e equipe</em></p>
-</div>
-"""
-
-    corpo_txt = (
-        f"Olá, {nome}!\n\n"
-        "Recebemos seu formulário do Gestar Bem com sucesso.\n\n"
-        "Durante a análise das suas informações, identificamos que alguns dados precisam ser "
-        "confirmados para que possamos montar seu plano com total segurança e precisão.\n\n"
-        "Alguém da nossa equipe entrará em contato em breve pelo WhatsApp ou email "
-        "para confirmar os dados e garantir que seu plano seja personalizado corretamente para você.\n\n"
-        "Com carinho,\nEquipe Gestar Bem\nDra. Jessica D'Agostini e equipe"
-    )
-
-    payload = {
-        "personalizations": [{"to": [{"email": email_paciente, "name": nome}]}],
-        "from":    {"email": remetente, "name": "Gestar Bem"},
-        "subject": "Seu formulário foi recebido — confirmaremos seus dados em breve",
-        "content": [
-            {"type": "text/plain", "value": corpo_txt},
-            {"type": "text/html",  "value": corpo_html},
-        ],
-    }
-
-    try:
-        req = urllib.request.Request(
-            "https://api.sendgrid.com/v3/mail/send",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        urllib.request.urlopen(req, timeout=30)
-        log.info(f"[INVALIDO] Email 'aguarde' enviado para paciente {email_paciente}")
-    except Exception as ex:
-        log.warning(f"[INVALIDO] Falha ao enviar email 'aguarde' para paciente: {ex}")
+</div>"""
+    _enviar_email_sg(email_paciente,
+                     "Seu formulário foi recebido — confirmaremos seus dados em breve",
+                     corpo_txt, corpo_html=corpo_html, nome_remetente='Gestar Bem')
 
 
 def _enviar_alerta_dados_suspeitos(dados, problemas):
-    """Avisa a equipe quando peso ou altura parecem incorretos, para confirmar com a paciente."""
-    sg_key    = os.environ.get('SENDGRID_API_KEY', '')
-    remetente = 'planosgestarbem@gmail.com'
-    destinatarios_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
-    destinatarios = [e.strip() for e in destinatarios_str.split(',') if e.strip()]
-
-    if not sg_key:
-        log.error("[ALERTA-DADOS] SENDGRID_API_KEY nao configurado")
-        return
-
+    """Avisa a equipe quando peso ou altura parecem incorretos (plano gerado com auto-correção)."""
     nome  = dados.get('nome', '?')
     email = dados.get('email', '?')
     peso  = dados.get('peso_atual', '?')
     alt   = dados.get('altura', '?')
-
     corpo = f"""⚠️ ATENÇÃO — Dados suspeitos no formulário da paciente
 
 Paciente: {nome}
@@ -462,43 +436,15 @@ O plano foi gerado normalmente com os dados corrigidos automaticamente.
 Por favor, confirme com a paciente se os dados estão corretos e reprocesse se necessário.
 
 Painel: https://painel.programagestarbem.com.br/painel"""
-
-    payload = {
-        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
-        "subject": f"⚠️ Dados suspeitos — {nome} (confirmar com paciente)",
-        "content": [{"type": "text/plain", "value": corpo}],
-    }
-
-    req = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
-        data=json.dumps(payload).encode('utf-8'),
-        headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            log.info(f"[ALERTA-DADOS] Alerta enviado para {destinatarios} — {nome}")
-    except Exception as ex:
-        log.error(f"[ALERTA-DADOS] Falha ao enviar alerta: {ex}")
+    dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+    _enviar_email_sg(dest, f"⚠️ Dados suspeitos — {nome} (confirmar com paciente)", corpo)
 
 
 def _enviar_alerta_falha(job_id, dados, tentativas, erro):
-    """Envia email de alerta para os responsaveis quando um job falha definitivamente."""
-    sg_key    = os.environ.get('SENDGRID_API_KEY', '')
-    remetente = 'planosgestarbem@gmail.com'
-    # Destinatarios separados por virgula na variavel EMAIL_ALERTA
-    destinatarios_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
-    destinatarios = [e.strip() for e in destinatarios_str.split(',') if e.strip()]
-
-    if not sg_key:
-        log.error("[ALERTA] SENDGRID_API_KEY nao configurado — nao foi possivel enviar alerta")
-        return
-
+    """Envia alerta para os responsáveis quando um job falha definitivamente."""
     nome  = dados.get('nome', '?')
     email = dados.get('email', '?')
-
-    corpo = f"""⚠️ ALERTA — Plano nao entregue após {tentativas} tentativas
+    corpo = f"""⚠️ ALERTA — Plano não entregue após {tentativas} tentativas
 
 Paciente: {nome}
 Email: {email}
@@ -506,26 +452,11 @@ Job ID: {job_id}
 Tentativas: {tentativas}
 Ultimo erro: {erro[:300]}
 
-Acesse o painel do Railway para verificar os logs e reprocessar manualmente se necessario."""
-
-    payload = {
-        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
-        "subject": f"⚠️ FALHA: Plano de {nome} nao entregue",
-        "content": [{"type": "text/plain", "value": corpo}],
-    }
-
-    req = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
-        data=json.dumps(payload).encode('utf-8'),
-        headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            log.info(f"[ALERTA] Email de falha enviado para {destinatarios} — job {job_id} ({nome})")
-    except Exception as ex:
-        log.error(f"[ALERTA] Falha ao enviar alerta: {ex}")
+Acesse o painel para verificar os logs e reprocessar manualmente se necessário.
+Painel: https://painel.programagestarbem.com.br/painel?token=1902
+Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}"""
+    dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+    _enviar_email_sg(dest, f"⚠️ FALHA: Plano de {nome} não entregue", corpo)
 
 
 def limpar_banco():
@@ -651,32 +582,10 @@ Situacao: {situacao}
 Acao necessaria: {acao}
 
 ---
-https://web-production-94437.up.railway.app/health"""
+https://gestar-bem-api.fly.dev/health"""
 
-    # Enviar para todos os destinatarios de alerta
-    sg_key2    = os.environ.get('SENDGRID_API_KEY', '')
-    remetente  = 'planosgestarbem@gmail.com'
-    dest_str   = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
-    destinatarios = [e.strip() for e in dest_str.split(',') if e.strip()]
-    assunto    = f"{emoji_geral} Check diario Gestar Bem — {data_hora}"
-
-    payload = {
-        "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": remetente, "name": "Gestar Bem — Sistema"},
-        "subject": assunto,
-        "content": [{"type": "text/plain", "value": corpo}],
-    }
-    req = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
-        data=json.dumps(payload).encode('utf-8'),
-        headers={"Authorization": f"Bearer {sg_key2}", "Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            log.info(f"[CHECK] Relatorio enviado para {destinatarios} — {emoji_geral} {situacao}")
-    except Exception as ex:
-        log.error(f"[CHECK] Falha ao enviar relatorio: {ex}")
+    dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+    _enviar_email_sg(dest, f"{emoji_geral} Check diário Gestar Bem — {data_hora}", corpo)
 
 
 def check_anthropic():
@@ -692,33 +601,15 @@ def check_anthropic():
         err_str = str(e).lower()
         if 'credit' in err_str or 'billing' in err_str or 'quota' in err_str:
             log.error("[ANTHROPIC] CREDITO ESGOTADO — enviando alerta")
-            sg_key = os.environ.get('SENDGRID_API_KEY', '')
-            dest_str = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
-            destinatarios = [e.strip() for e in dest_str.split(',') if e.strip()]
-            corpo = """🔴 URGENTE — Crédito Anthropic esgotado
-
-Os planos do Gestar Bem PARARAM de ser gerados.
-
-AÇÃO NECESSÁRIA AGORA:
-Acesse console.anthropic.com → Plans & Billing → adicionar créditos.
-
-A chave está na conta planosgestarbem@gmail.com."""
-            payload = {
-                "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-                "from":    {"email": "planosgestarbem@gmail.com", "name": "Gestar Bem — Sistema"},
-                "subject": "🔴 URGENTE: Planos parados — crédito Anthropic zerado",
-                "content": [{"type": "text/plain", "value": corpo}],
-            }
-            req = urllib.request.Request(
-                "https://api.sendgrid.com/v3/mail/send",
-                data=json.dumps(payload).encode('utf-8'),
-                headers={"Authorization": f"Bearer {sg_key}", "Content-Type": "application/json"},
-                method="POST"
+            dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+            _enviar_email_sg(dest,
+                "🔴 URGENTE: Planos parados — crédito Anthropic zerado",
+                "🔴 URGENTE — Crédito Anthropic esgotado\n\n"
+                "Os planos do Gestar Bem PARARAM de ser gerados.\n\n"
+                "AÇÃO NECESSÁRIA AGORA:\n"
+                "Acesse console.anthropic.com → Plans & Billing → adicionar créditos.\n\n"
+                "A chave está na conta planosgestarbem@gmail.com."
             )
-            try:
-                urllib.request.urlopen(req, timeout=30)
-            except Exception as ex:
-                log.error(f"[ANTHROPIC] Falha ao enviar alerta: {ex}")
         else:
             log.warning(f"[ANTHROPIC] Erro inesperado na checagem: {e}")
 
@@ -1039,6 +930,74 @@ def _extrair_numero(valor, inteiro=False):
     return int(numero) if inteiro else numero
 
 
+def _validar_dados_criticos(dados):
+    """
+    Valida campos críticos do formulário ANTES de qualquer processamento caro.
+    Levanta DadosInvalidosError se encontrar dados que impedem gerar o plano com segurança.
+    Deve ser chamada no início de _gerar_plano_interno, antes de Vision e Claude.
+    """
+    erros = []
+
+    # Email — sem email não tem como entregar
+    email = str(dados.get('email', '')).strip()
+    if not email or '@' not in email:
+        erros.append("Email ausente ou inválido. Sem email não é possível entregar o plano.")
+
+    # Semanas de gestação
+    semanas_raw = str(dados.get('semanas_gestacao', '')).strip().replace(',', '.')
+    if not semanas_raw:
+        erros.append("Campo 'semanas de gestação' está vazio. Perguntar: 'Com quantas semanas você está grávida?'")
+    else:
+        try:
+            sv = float(semanas_raw.split()[0])
+            if 1.30 <= sv <= 2.20:
+                erros.append(
+                    f"Campo 'semanas de gestação' recebeu '{semanas_raw}', que parece ser a ALTURA "
+                    f"em metros. Perguntar: 'Com quantas semanas você está grávida?'"
+                )
+            elif sv > 42:
+                erros.append(
+                    f"Semanas informadas ({semanas_raw}) estão acima de 42 — valor impossível. "
+                    f"Pode ser a altura em cm. Perguntar: 'Com quantas semanas está?'"
+                )
+            elif sv <= 0:
+                erros.append(
+                    f"Semanas informadas ({semanas_raw}) são zero ou negativas. "
+                    f"Perguntar: 'Com quantas semanas de gestação você está?'"
+                )
+        except Exception:
+            erros.append(
+                f"Campo 'semanas de gestação' com valor não numérico ('{semanas_raw}'). "
+                f"Perguntar: 'Com quantas semanas você está grávida?'"
+            )
+
+    # Peso — acima de 130kg pode ser altura em cm digitada no campo errado
+    try:
+        peso_raw = _extrair_numero(dados.get('peso_atual', ''))
+        if peso_raw > 130:
+            erros.append(
+                f"Peso informado ({peso_raw:.1f}kg) está acima de 130kg. "
+                f"Pode ser a altura em cm digitada no campo errado. "
+                f"Perguntar: 'Qual é o seu peso atual em quilogramas?'"
+            )
+    except Exception:
+        pass  # peso inválido será detectado por calcular_dados_clinicos
+
+    # Idade — valores fora do razoável para uma gestante
+    try:
+        idade_raw = _extrair_numero(dados.get('idade', ''))
+        if idade_raw < 12 or idade_raw > 55:
+            erros.append(
+                f"Idade informada ({int(idade_raw)} anos) está fora do esperado para uma gestante. "
+                f"Perguntar: 'Qual é a sua idade?'"
+            )
+    except Exception:
+        pass  # idade ausente/inválida será detectada por calcular_dados_clinicos
+
+    if erros:
+        raise DadosInvalidosError('DADOS_INVALIDOS: ' + ' | '.join(erros))
+
+
 def calcular_dados_clinicos(dados):
     """
     Calcula TMB (Mifflin-St Jeor), manutencao, calorias alvo,
@@ -1075,57 +1034,8 @@ def calcular_dados_clinicos(dados):
                 alt = alt / 10
             log.warning(f"Altura corrigida automaticamente: {alt_original} -> {alt:.1f}cm (provavel erro de digitacao)")
 
-        # Detectar inversão e dados suspeitos — alerta para a equipe
-        alertas_dados = []
-
-        # ── Validação crítica (BLOQUEIA o plano) ──────────────────────────────
-        erros_criticos = []
-
-        # Email ausente — sem como entregar o plano
-        email_paciente = str(dados.get('email', '')).strip()
-        if not email_paciente or '@' not in email_paciente:
-            erros_criticos.append(
-                "Email da paciente ausente ou inválido. Sem email não é possível entregar o plano."
-            )
-
-        # Semanas de gestação claramente errado
-        semanas_raw = str(dados.get('semanas_gestacao', '')).strip().replace(',', '.')
-        try:
-            semanas_float = float(semanas_raw.split()[0])
-            if 1.30 <= semanas_float <= 2.20:
-                erros_criticos.append(
-                    f"Campo 'semanas de gestação' recebeu o valor '{semanas_raw}', que parece ser a ALTURA "
-                    f"da paciente em metros (ex: 1,65m). Perguntar: 'Com quantas semanas você está grávida?'"
-                )
-            elif semanas_float > 42:
-                erros_criticos.append(
-                    f"Semanas de gestação informadas ({semanas_raw}) estão acima de 42 — valor impossível. "
-                    f"Pode ser a altura em cm digitada no campo errado. Perguntar: 'Com quantas semanas está?'"
-                )
-            elif semanas_float <= 0:
-                erros_criticos.append(
-                    f"Semanas de gestação informadas ({semanas_raw}) são zero ou negativas. "
-                    f"Perguntar: 'Com quantas semanas de gestação você está?'"
-                )
-        except Exception:
-            semanas_raw_orig = str(dados.get('semanas_gestacao', '')).strip()
-            if not semanas_raw_orig:
-                erros_criticos.append(
-                    "Campo 'semanas de gestação' está vazio. Perguntar: 'Com quantas semanas você está grávida?'"
-                )
-
-        # Peso muito alto — pode ser confusão com altura (ex: 165 no campo de peso)
-        if peso > 130:
-            erros_criticos.append(
-                f"Peso informado ({peso:.1f}kg) está acima de 130kg. "
-                f"Pode ser a altura em cm digitada no campo errado. "
-                f"Perguntar: 'Qual é o seu peso atual em quilogramas?'"
-            )
-
-        if erros_criticos:
-            raise DadosInvalidosError('DADOS_INVALIDOS: ' + ' | '.join(erros_criticos))
-
         # ── Alertas suspeitos (avisa mas gera o plano normalmente) ────────────
+        # Validações críticas já foram feitas em _validar_dados_criticos antes de chegar aqui.
         # Só chegam aqui casos que podem ser corrigidos automaticamente com alta confiança.
         alertas_dados = []
 
@@ -1655,6 +1565,11 @@ def _gerar_plano_interno(dados):
     quadros_clinicos   = dados.get('quadros_clinicos', '')
     alergia_alimentos  = dados.get('alergia_alimentos', '')
     preferencia        = dados.get('preferencia', '')
+
+    # ── Validação crítica ANTES de qualquer custo (Vision + Claude) ─────────
+    # Se os dados tiverem erro crítico, levanta DadosInvalidosError imediatamente.
+    # Isso evita gastar tokens de Vision em planos que serão bloqueados.
+    _validar_dados_criticos(dados)
 
     # ── Processar imagens de exames com Claude Vision (se houver) ────────────
     job_id   = dados.get('_plano_id')   # injetado por verificar_fila
@@ -2332,17 +2247,20 @@ def painel():
         # Resumo geral
         cur.execute("""
             SELECT
-                COUNT(*)                                                                    AS total,
+                COUNT(*)                                                                       AS total,
                 COUNT(*) FILTER (WHERE processado = TRUE
-                                 AND processado_em >= NOW() - INTERVAL '24 hours')         AS hoje,
+                                 AND processado_em >= NOW() - INTERVAL '24 hours'
+                                 AND (erro IS NULL OR erro NOT LIKE 'DADOS_INVALIDOS%'))       AS hoje,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas = 0
                                  AND (proxima_tentativa IS NULL OR proxima_tentativa <= NOW())) AS pendentes,
-                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)              AS com_falha,
-                COUNT(*) FILTER (WHERE processado = TRUE)                                  AS concluidos
+                COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)                  AS com_falha,
+                COUNT(*) FILTER (WHERE processado = TRUE
+                                 AND (erro IS NULL OR erro NOT LIKE 'DADOS_INVALIDOS%'))       AS concluidos,
+                COUNT(*) FILTER (WHERE erro LIKE 'DADOS_INVALIDOS%')                           AS dados_invalidos
             FROM planos_agendados
         """)
         r = cur.fetchone()
-        total, hoje, pendentes, com_falha, concluidos = r
+        total, hoje, pendentes, com_falha, concluidos, dados_invalidos = r
 
         # Ultimos 20 registros
         cur.execute("""
@@ -2379,6 +2297,10 @@ def painel():
     linhas_html = ''
     for reg in registros:
         rid, nome, email, agendado, processado, tentativas, processado_em, erro = reg
+        # Escape para evitar XSS — campos vêm diretamente do formulário das pacientes
+        nome_s  = _html.escape(nome  or '-')
+        email_s = _html.escape(email or '-')
+        erro_s  = _html.escape((erro[:60] + '...') if erro and len(erro) > 60 else (erro or ''))
         if processado and not erro:
             status = '✅ Enviado'
         elif processado and erro and erro.startswith('DADOS_INVALIDOS'):
@@ -2392,16 +2314,15 @@ def painel():
         cor    = linha_cor(processado, tentativas, erro)
         ag_str = agendado.strftime('%d/%m %H:%M') if agendado else '-'
         pr_str = processado_em.strftime('%d/%m %H:%M') if processado_em else '-'
-        erro_str = (erro[:60] + '...') if erro and len(erro) > 60 else (erro or '')
         linhas_html += f"""
         <tr style="background:{cor}">
             <td>{rid}</td>
-            <td>{nome or '-'}</td>
-            <td style="font-size:12px">{email or '-'}</td>
+            <td>{nome_s}</td>
+            <td style="font-size:12px">{email_s}</td>
             <td>{ag_str}</td>
             <td>{pr_str}</td>
             <td>{status}</td>
-            <td style="font-size:11px;color:#c00">{erro_str}</td>
+            <td style="font-size:11px;color:#c00">{erro_s}</td>
             <td><a href="/painel/detalhes/{rid}?token={token_recebido}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
         </tr>"""
 
@@ -2467,6 +2388,7 @@ def painel():
     <div class="card"><div class="num">{hoje}</div><div class="lab">Enviados hoje</div></div>
     <div class="card"><div class="num">{pendentes}</div><div class="lab">Pendentes</div></div>
     <div class="card {'alerta' if com_falha > 0 else ''}"><div class="num">{com_falha}</div><div class="lab">Com falha</div></div>
+    <div class="card {'alerta' if dados_invalidos > 0 else ''}"><div class="num">{dados_invalidos}</div><div class="lab">Dados Inválidos</div></div>
     <div class="card"><div class="num">{concluidos}</div><div class="lab">Total concluídos</div></div>
     <div class="card"><div class="num">{total}</div><div class="lab">Total geral</div></div>
   </div>
@@ -2493,11 +2415,10 @@ def reset_scheduler():
     if token != os.environ.get('PAINEL_TOKEN', '1902'):
         return jsonify({"erro": "nao autorizado"}), 403
     try:
-        global scheduler
-        scheduler.remove_job('verificar_fila')
-        scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila',
-                          max_instances=1, coalesce=True)
-        prox = scheduler.get_job('verificar_fila').next_run_time
+        _scheduler.remove_job('verificar_fila')
+        _scheduler.add_job(verificar_fila, 'interval', minutes=1, id='verificar_fila',
+                           max_instances=1, coalesce=True)
+        prox = _scheduler.get_job('verificar_fila').next_run_time
         log.info("Scheduler resetado manualmente via /reset-scheduler")
         return jsonify({"status": "ok", "mensagem": "scheduler resetado", "proxima_execucao": str(prox)}), 200
     except Exception as e:
