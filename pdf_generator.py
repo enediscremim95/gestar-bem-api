@@ -264,8 +264,9 @@ def apply_inline_markup(text):
     restante = _html.escape(restante)
 
     # Passo 3: restaurar os placeholders com as tags geradas
-    for idx, tag in enumerate(partes):
-        restante = restante.replace(_html.escape(PLACEHOLDER.format(idx)), tag)
+    # Iterar em ordem inversa evita conflito entre '\x001' e '\x0010'
+    for idx in range(len(partes) - 1, -1, -1):
+        restante = restante.replace(_html.escape(PLACEHOLDER.format(idx)), partes[idx])
 
     return restante
 
