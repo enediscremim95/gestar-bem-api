@@ -8,9 +8,9 @@ Formula TMB: Mifflin-St Jeor
   Mulheres: (10 x peso) + (6,25 x altura) - (5 x idade) - 161
 Fator atividade:
   Sedentaria     = 1.2
-  Leve           = 1.375
+  Leve           = 1.37
   Moderada       = 1.55
-  Avancada/Intensa = 1.725
+  Avancada/Intensa = 1.7
 """
 
 import os, logging, re, threading, base64, json, traceback, atexit, time, secrets, html as _html, unicodedata
@@ -91,9 +91,6 @@ TENTATIVAS_POR_RODADA = 3
 MAX_RODADAS           = 3
 MAX_TENTATIVAS_TOTAL  = TENTATIVAS_POR_RODADA * MAX_RODADAS  # 9
 INTERVALO_RODADA_H    = 2  # horas de espera entre rodadas
-
-# Email de alerta quando um job falha definitivamente
-EMAIL_ALERTA = os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com')
 
 # Delay em horas antes de enviar o plano (padrão: 5 minutos para testes)
 try:
