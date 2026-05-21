@@ -2,7 +2,7 @@
 """
 pdf_generator.py — Gestar Bem
 Gera o PDF do plano personalizado com layout identico ao modelo aprovado.
-Chamado pelo main.py do Replit com os dados do formulario e o texto do Claude.
+Chamado pelo main.py do Fly.io com os dados do formulario e o texto do Claude.
 """
 import os, io, re, base64, unicodedata
 

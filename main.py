@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-main.py — Railway Flask API — Gestar Bem
+main.py — Fly.io Flask API — Gestar Bem
 Recebe dados do formulario via Apps Script, calcula TMB/macros,
 gera plano com Claude, converte em PDF e envia por email.
 
@@ -461,7 +461,7 @@ Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}"""
 
 
 def limpar_banco():
-    """Remove registros processados com mais de 30 dias para nao acumular lixo no banco."""
+    """Remove registros processados com mais de 270 dias para nao acumular lixo no banco."""
     conn = None
     try:
         conn = get_db()
@@ -602,7 +602,7 @@ def check_anthropic():
         err_str = str(e).lower()
         if 'credit' in err_str or 'billing' in err_str or 'quota' in err_str:
             log.error("[ANTHROPIC] CREDITO ESGOTADO — enviando alerta")
-            dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+            dest = [d.strip() for d in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if d.strip()]
             _enviar_email_sg(dest,
                 "🔴 URGENTE: Planos parados — crédito Anthropic zerado",
                 "🔴 URGENTE — Crédito Anthropic esgotado\n\n"
@@ -1673,7 +1673,7 @@ CONDUTAS ESPECIFICAS PARA O 2o TRIMESTRE:
 - Ferro e calcio tornam-se ainda mais importantes neste periodo
 - Constipacao pode continuar — fibras, agua e movimento sao essenciais
 - Exercicios fisicos sao geralmente bem tolerados (com liberacao medica)
-- Hidratacao: peso x 35ml/dia
+- Hidratacao: peso x 40ml/dia
 - Inchazo leve pode comecar — monitorar ingestao de sodio
 - Omega-3 DHA e crucial para desenvolvimento cerebral fetal
 - Tom da carta: celebrar a fase de energia e estimular a construcao de habitos"""
@@ -1691,7 +1691,7 @@ da mae esta se preparando para o parto. E normal sentir:
 CONDUTAS ESPECIFICAS PARA O 3o TRIMESTRE:
 - Refeicoes MENORES e mais frequentes — o estomago tem menos espaco
 - Acrescentar +450 kcal ao dia em relacao a manutencao (ja calculado)
-- Hidratacao: peso x 40ml/dia (aumenta em relacao aos trimestres anteriores)
+- Hidratacao: peso x 40ml/dia (mesmo do 2o trimestre — manter rigorosamente)
 - Evitar alimentos que pioram refluxo: frituras, acidos, cafe em excesso
 - Calcio e vitamina D sao criticos para mineralizacao ossea do bebe
 - Ferro: verificar ferritina — anemia no 3o trimestre e mais perigosa
@@ -2405,8 +2405,9 @@ def painel():
 @app.route('/reset-scheduler')
 def reset_scheduler():
     """Reinicia o APScheduler sem precisar de redeploy. Util apos outages."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
     token = request.args.get('token', '')
-    if token != os.environ.get('PAINEL_TOKEN', '1902'):
+    if not token_esperado or token != token_esperado:
         return jsonify({"erro": "nao autorizado"}), 403
     try:
         _scheduler.remove_job('verificar_fila')
@@ -2424,7 +2425,7 @@ def health():
     """
     Checagem completa da saude do sistema.
     Retorna 200 se tudo ok, 500 se qualquer componente critico falhar.
-    Util para monitoramento externo (Railway, UptimeRobot, etc.).
+    Util para monitoramento externo (Fly.io, UptimeRobot, etc.).
     """
     resultado = {
         "status":     "ok",
