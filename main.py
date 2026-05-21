@@ -72,6 +72,7 @@ def _enviar_email_sg(destinatarios, assunto, corpo_txt, corpo_html=None,
         "from":    {"email": "planosgestarbem@gmail.com", "name": nome_remetente},
         "subject": assunto,
         "content": content,
+        "tracking_settings": {"click_tracking": {"enable": False}},
     }
     try:
         req = urllib.request.Request(
