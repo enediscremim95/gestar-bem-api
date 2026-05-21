@@ -21,7 +21,7 @@ import psycopg2
 from psycopg2.extras import Json as PgJson
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from flask import Flask, request, jsonify, send_from_directory, abort
+from flask import Flask, request, jsonify, send_from_directory, abort, redirect
 import anthropic
 from pdf_generator import gerar_pdf_base64, nome_arquivo_pdf
 
@@ -164,7 +164,7 @@ def init_db():
                 id              SERIAL PRIMARY KEY,
                 plano_id        INTEGER REFERENCES planos_agendados(id) ON DELETE CASCADE,
                 campo           VARCHAR(60)  NOT NULL,
-                imagem_bytes    BYTEA        NOT NULL,
+                imagem_bytes    BYTEA,
                 mime_type       VARCHAR(50)  DEFAULT 'image/jpeg',
                 nome_extraido   TEXT,
                 valor_extraido  TEXT,
@@ -173,6 +173,11 @@ def init_db():
                 processado      BOOLEAN      DEFAULT FALSE,
                 criado_em       TIMESTAMP    DEFAULT NOW()
             )
+        """)
+        # Permite NULL em imagem_bytes (bytes limpos após Vision processar, para economizar espaço)
+        cur.execute("""
+            ALTER TABLE exames_imagens
+            ALTER COLUMN imagem_bytes DROP NOT NULL
         """)
         conn.commit()
         cur.close()
@@ -464,6 +469,20 @@ def limpar_banco():
     try:
         conn = get_db()
         cur  = conn.cursor()
+        # Zerar bytes de imagens processadas há mais de 30 dias (libera espaço no Neon)
+        # Mantém nome_extraido/valor_extraido/unidade para histórico e reprocessamento
+        cur.execute("""
+            UPDATE exames_imagens
+            SET imagem_bytes = NULL
+            WHERE processado = TRUE
+            AND criado_em < NOW() - INTERVAL '30 days'
+            AND imagem_bytes IS NOT NULL
+        """)
+        imgs_zeradas = cur.rowcount
+        if imgs_zeradas > 0:
+            log.info(f"[LIMPEZA] {imgs_zeradas} imagem(ns) de exame com bytes zerados (>30 dias)")
+
+        # Apagar planos processados com mais de 270 dias
         cur.execute("""
             DELETE FROM planos_agendados
             WHERE processado = TRUE
@@ -1306,7 +1325,8 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, campo, imagem_bytes, mime_type FROM exames_imagens "
+            "SELECT id, campo, imagem_bytes, mime_type, valor_extraido, unidade "
+            "FROM exames_imagens "
             "WHERE plano_id = %s AND processado = FALSE",
             (plano_id,)
         )
@@ -1320,7 +1340,17 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
     valores = {}
     updates = []  # [(nome_exame, valor_extraido, unidade, alerta, img_id)]
 
-    for (img_id, campo, imagem_bytes, mime_type) in rows:
+    for (img_id, campo, imagem_bytes, mime_type, valor_pre, unidade_pre) in rows:
+        # Bytes já limpos (>30 dias) mas valor pré-extraído disponível — reutilizar
+        if not imagem_bytes:
+            if valor_pre:
+                campo_destino = CAMPOS_EXAME_IMAGEM.get(campo)
+                if campo_destino:
+                    valores[campo_destino] = f"{valor_pre} {unidade_pre or ''}".strip()
+                    log.info(f"[VISION] {campo} → reutilizando valor pré-extraído: {valores[campo_destino]}")
+            updates.append((None, valor_pre, unidade_pre, False, img_id))
+            continue
+
         try:
             img_b64 = base64.b64encode(bytes(imagem_bytes)).decode('utf-8')
             label   = campo.replace('img_', '').replace('_', ' ').upper()
@@ -1397,7 +1427,7 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
             for (nome_exame, valor_extraido, unidade, alerta, img_id) in updates:
                 cur_upd.execute(
                     "UPDATE exames_imagens SET nome_extraido=%s, valor_extraido=%s, "
-                    "unidade=%s, alerta_nome=%s, processado=TRUE WHERE id=%s",
+                    "unidade=%s, alerta_nome=%s, processado=TRUE, imagem_bytes=NULL WHERE id=%s",
                     (nome_exame, valor_extraido, unidade, alerta, img_id)
                 )
             conn_upd.commit()
@@ -2708,6 +2738,20 @@ def painel_detalhes(job_id):
     voltar_busca = f"/painel/buscar?token={token_safe}&email={email_enc}"
     erro_s    = _html.escape(erro) if erro else ''
 
+    btn_reprocessar = f"""
+    <form method="POST" action="/painel/reprocessar/{job_id}?token={token_safe}"
+          onsubmit="return confirm('Reprocessar este plano? Um novo email será enviado para a paciente.');"
+          style="margin-top:20px;display:inline-block;">
+      <button type="submit"
+        style="background:#9B27AF;color:#fff;border:none;border-radius:8px;
+               padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;">
+        🔄 Reprocessar plano
+      </button>
+    </form>
+    <p style="color:#888;font-size:12px;margin-top:6px;">
+      Reprocessar zera tentativas, gera novo plano e envia novo email para a paciente.
+    </p>"""
+
     conteudo = f"""
     <a href="{voltar_busca}" class="btn-voltar">← Voltar ao histórico de {nome_s}</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
@@ -2715,9 +2759,54 @@ def painel_detalhes(job_id):
     <table style="max-width:700px">
       <tbody>{linhas}</tbody>
     </table>
-    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro else ''}"""
+    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro else ''}
+    {btn_reprocessar}"""
 
     return _painel_html_base(token_recebido, conteudo), 200
+
+
+@app.route('/painel/reprocessar/<int:job_id>', methods=['POST'])
+def painel_reprocessar(job_id):
+    """Reseta um plano para reprocessamento — zera tentativas e erro."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2 style="font-family:sans-serif;color:#c00">Acesso negado.</h2>', 403
+
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        # Reseta o plano principal
+        cur.execute("""
+            UPDATE planos_agendados
+            SET processado        = FALSE,
+                tentativas        = 0,
+                proxima_tentativa = NOW(),
+                erro              = NULL,
+                processado_em     = NULL
+            WHERE id = %s
+        """, (job_id,))
+        if cur.rowcount == 0:
+            return '<h2 style="font-family:sans-serif;color:#c00">Plano não encontrado.</h2>', 404
+        # Reseta imagens para que Vision re-processe (se bytes ainda existirem)
+        cur.execute("""
+            UPDATE exames_imagens
+            SET processado = FALSE
+            WHERE plano_id = %s
+        """, (job_id,))
+        conn.commit()
+        cur.close()
+        log.info(f"[REPROCESSAR] Plano {job_id} resetado via painel")
+    except Exception as e:
+        log.error(f"[REPROCESSAR] Erro ao resetar plano {job_id}: {e}")
+        return '<h2 style="font-family:sans-serif;color:#c00">Erro interno ao reprocessar.</h2>', 500
+    finally:
+        if conn:
+            conn.close()
+
+    token_safe = urllib.parse.quote(token_recebido, safe='')
+    return redirect(f"/painel/detalhes/{job_id}?token={token_safe}")
 
 
 if __name__ == '__main__':
