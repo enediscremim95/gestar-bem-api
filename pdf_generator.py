@@ -4,7 +4,7 @@ pdf_generator.py — Gestar Bem
 Gera o PDF do plano personalizado com layout identico ao modelo aprovado.
 Chamado pelo main.py do Fly.io com os dados do formulario e o texto do Claude.
 """
-import os, io, re, base64, unicodedata
+import os, io, re, base64, unicodedata, html as _html
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
@@ -220,16 +220,54 @@ def secao(titulo, estilos):
 
 
 def apply_inline_markup(text):
-    """Converte **negrito**, *italico* e URLs clicaveis para tags ReportLab."""
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
-    # URLs clicaveis — detecta http(s):// fora de tags já existentes
-    text = re.sub(
-        r'(?<!href=")(https?://[^\s\)\]<>"]+)',
-        r'<a href="\1" color="#7B1FA2">\1</a>',
-        text
-    )
-    return text
+    """
+    Converte **negrito**, *italico* e URLs clicaveis para tags ReportLab.
+    Escapa caracteres XML especiais (<, >, &) fora das marcacoes geradas,
+    para que o parser do ReportLab nao quebre com texto como "glicose < 92 mg/dL".
+    """
+    # Passo 1: extrair blocos com marcacao e substituir por placeholders
+    # para nao escapar as proprias tags que vamos gerar
+    PLACEHOLDER = '\x00{}' # caracter nulo como delimitador — nunca aparece no texto do Claude
+
+    partes = []  # lista de (texto_raw, e_markup)
+    restante = text
+
+    # Processar **negrito**
+    def substituir_bold(m):
+        conteudo = _html.escape(m.group(1))
+        idx = len(partes)
+        partes.append(f'<b>{conteudo}</b>')
+        return PLACEHOLDER.format(idx)
+
+    restante = re.sub(r'\*\*(.+?)\*\*', substituir_bold, restante)
+
+    # Processar *italico* (apenas asterisco simples que sobrou)
+    def substituir_italic(m):
+        conteudo = _html.escape(m.group(1))
+        idx = len(partes)
+        partes.append(f'<i>{conteudo}</i>')
+        return PLACEHOLDER.format(idx)
+
+    restante = re.sub(r'\*(.+?)\*', substituir_italic, restante)
+
+    # Processar URLs
+    def substituir_url(m):
+        url = m.group(1)
+        url_escaped = _html.escape(url)
+        idx = len(partes)
+        partes.append(f'<a href="{url_escaped}" color="#7B1FA2">{url_escaped}</a>')
+        return PLACEHOLDER.format(idx)
+
+    restante = re.sub(r'(?<!href=")(https?://[^\s\)\]<>"]+)', substituir_url, restante)
+
+    # Passo 2: escapar o texto restante (fora das marcacoes)
+    restante = _html.escape(restante)
+
+    # Passo 3: restaurar os placeholders com as tags geradas
+    for idx, tag in enumerate(partes):
+        restante = restante.replace(_html.escape(PLACEHOLDER.format(idx)), tag)
+
+    return restante
 
 
 def calcular_trimestre(semanas_str):
@@ -303,7 +341,7 @@ def render_texto_claude(texto, estilos):
 
         # Secao principal: ## Titulo
         if linha_strip.startswith('## '):
-            titulo = linha_strip[3:].strip()
+            titulo = _html.escape(linha_strip[3:].strip())
             elements += secao(titulo, estilos)
             continue
 
@@ -363,7 +401,7 @@ def render_texto_claude(texto, estilos):
         # Citacao biblica: linha entre aspas
         if (linha_strip.startswith('"') and linha_strip.endswith('"')) or \
            (linha_strip.startswith('\u201c') and linha_strip.endswith('\u201d')):
-            elements.append(Paragraph(linha_strip, estilos['citacao']))
+            elements.append(Paragraph(_html.escape(linha_strip), estilos['citacao']))
             continue
 
         # Paragrafo normal
@@ -412,10 +450,10 @@ def gerar_pdf(dados, plano_texto):
     story.append(sp(6))
 
     campos = [
-        ('Gestante:', nome),
-        ('Periodo de Gestacao:', f'{trimestre} ({semanas} semanas)'),
-        ('Peso atual:', f'{peso_atual} kg' if peso_atual else '-'),
-        ('Peso pre-gestacao:', f'{peso_antes} kg' if peso_antes else '-'),
+        ('Gestante:', _html.escape(str(nome))),
+        ('Periodo de Gestacao:', f'{_html.escape(str(trimestre))} ({_html.escape(str(semanas))} semanas)'),
+        ('Peso atual:', f'{_html.escape(str(peso_atual))} kg' if peso_atual else '-'),
+        ('Peso pre-gestacao:', f'{_html.escape(str(peso_antes))} kg' if peso_antes else '-'),
     ]
     for chave, valor in campos:
         story.append(Paragraph(f'<b>{chave}</b>  {valor}', estilos['dados']))
