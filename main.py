@@ -1114,13 +1114,22 @@ def calcular_dados_clinicos(dados):
                     "Campo 'semanas de gestação' está vazio. Perguntar: 'Com quantas semanas você está grávida?'"
                 )
 
+        # Peso muito alto — pode ser confusão com altura (ex: 165 no campo de peso)
+        if peso > 130:
+            erros_criticos.append(
+                f"Peso informado ({peso:.1f}kg) está acima de 130kg. "
+                f"Pode ser a altura em cm digitada no campo errado. "
+                f"Perguntar: 'Qual é o seu peso atual em quilogramas?'"
+            )
+
         if erros_criticos:
             raise DadosInvalidosError('DADOS_INVALIDOS: ' + ' | '.join(erros_criticos))
 
         # ── Alertas suspeitos (avisa mas gera o plano normalmente) ────────────
+        # Só chegam aqui casos que podem ser corrigidos automaticamente com alta confiança.
         alertas_dados = []
 
-        # Caso clássico: peso e altura invertidos (ex: peso=170, altura=60)
+        # Inversão peso/altura (ex: peso=170, altura=60): matematicamente óbvio, corrige sozinho
         if (140 <= peso <= 220) and (alt < 100):
             log.warning(f"Possivel inversao peso/altura: peso={peso}, alt={alt} — corrigindo")
             peso, alt = alt, peso
@@ -1128,13 +1137,6 @@ def calcular_dados_clinicos(dados):
                 f"Peso e altura parecem invertidos. "
                 f"Peso original: {dados.get('peso_atual')} | Altura original: {dados.get('altura')}. "
                 f"Corrigido automaticamente para peso={peso:.1f}kg / altura={alt:.1f}cm."
-            )
-
-        # Peso muito alto para gestante — pode ser confusão com altura
-        elif peso > 130:
-            alertas_dados.append(
-                f"Peso informado ({peso:.1f}kg) está acima de 130kg. "
-                f"Verifique com a paciente se o valor está correto."
             )
 
         if alertas_dados:
