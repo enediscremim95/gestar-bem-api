@@ -337,7 +337,7 @@ def render_texto_claude(texto, estilos):
             continue
 
         # Bullet vermelho (NAO FAZER): x item
-        if linha_strip.lower().startswith('x ') and len(linha_strip) > 2 and linha_strip[1] == ' ':
+        if linha_strip.lower().startswith('x ') and len(linha_strip) > 2:
             conteudo = apply_inline_markup(linha_strip[2:].strip())
             elements.append(Paragraph(f'X  {conteudo}', estilos['bullet_vermelho']))
             elements.append(sp(2))

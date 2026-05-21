@@ -540,7 +540,7 @@ def check_diario():
         with urllib.request.urlopen(req_sg, timeout=15) as resp:
             stats     = json.loads(resp.read().decode())
             emails_sg = stats[0]['stats'][0]['metrics']['emails_sent'] if stats and stats[0].get('stats') else 0
-        pct = round(emails_sg / 100 * 100)
+        pct = emails_sg  # limite diario do free tier e 100 emails
         linhas.append(f"SendGrid: {emails_sg}/100 emails hoje ({pct}%)")
         if emails_sg >= 80:
             alertas.append(f"⚠️ SendGrid: {emails_sg}/100 emails usados — proximo do limite diario")
@@ -655,7 +655,7 @@ def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None,
             titulo_html = "📋 Seus Planos de Treino"
             intro_html  = ""
 
-        bloco_treino_txt = f"\n\n{'—'*40}\n{titulo_txt}\n\n"
+        bloco_treino_txt = f"\n\n{'=' * 40}\n{titulo_txt}\n\n"
         if intro_txt:
             bloco_treino_txt += intro_txt + "\n\n"
         for url, label in links_treino:
@@ -1668,7 +1668,7 @@ a energia volta e a barriga comeca a aparecer de forma bonita.
 E o melhor momento para estabelecer habitos solidos.
 
 CONDUTAS ESPECIFICAS PARA O 2o TRIMESTRE:
-- Acrescentar +340 kcal ao dia em relacao a manutencao (ja calculado)
+- Acrescentar +175 kcal ao dia em relacao a manutencao (ja calculado)
 - O bebe esta em fase de crescimento acelerado — proteina e FUNDAMENTAL
 - Ferro e calcio tornam-se ainda mais importantes neste periodo
 - Constipacao pode continuar — fibras, agua e movimento sao essenciais
@@ -1690,7 +1690,7 @@ da mae esta se preparando para o parto. E normal sentir:
 
 CONDUTAS ESPECIFICAS PARA O 3o TRIMESTRE:
 - Refeicoes MENORES e mais frequentes — o estomago tem menos espaco
-- Acrescentar +450 kcal ao dia em relacao a manutencao (ja calculado)
+- Acrescentar +175 kcal ao dia em relacao a manutencao (ja calculado)
 - Hidratacao: peso x 40ml/dia (mesmo do 2o trimestre — manter rigorosamente)
 - Evitar alimentos que pioram refluxo: frituras, acidos, cafe em excesso
 - Calcio e vitamina D sao criticos para mineralizacao ossea do bebe
@@ -2048,7 +2048,8 @@ INSTRUCOES DE FORMATO — use EXATAMENTE estes marcadores (o PDF e gerado automa
 x item negativo → bullet VERMELHO (coisas para NAO FAZER)
 ATENCAO: texto → alerta vermelho em negrito
 "texto entre aspas" → italico centralizado roxo (para citacoes biblicas)
---- → quebra de pagina (use entre secoes grandes)
+=== → quebra de pagina (use entre secoes grandes para comecar numa nova pagina)
+--- → separador visual (linha horizontal, NAO quebra de pagina)
 **palavra** → negrito inline
 
 SECOES OBRIGATORIAS (nesta ordem exata):
@@ -2288,6 +2289,7 @@ def painel():
             return '#ffebee'  # vermelho claro
         return '#ffffff'
 
+    token_safe = urllib.parse.quote(token_recebido, safe='')
     linhas_html = ''
     for reg in registros:
         rid, nome, email, agendado, processado, tentativas, processado_em, erro = reg
@@ -2317,7 +2319,7 @@ def painel():
             <td>{pr_str}</td>
             <td>{status}</td>
             <td style="font-size:11px;color:#c00">{erro_s}</td>
-            <td><a href="/painel/detalhes/{rid}?token={token_recebido}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
+            <td><a href="/painel/detalhes/{rid}?token={token_safe}" style="color:#9B27AF;text-decoration:none;font-size:18px;" title="Ver detalhes">👁</a></td>
         </tr>"""
 
     agora = datetime.now(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y %H:%M')
@@ -2369,7 +2371,7 @@ def painel():
   <div class="sub">Atualizado em {agora} (Brasília) &nbsp;|&nbsp; Atualiza automaticamente a cada 60s</div>
 
   <form method="GET" action="/painel/buscar" style="margin-bottom:28px;display:flex;gap:10px;align-items:center;">
-    <input type="hidden" name="token" value="{token_recebido}">
+    <input type="hidden" name="token" value="{_html.escape(token_recebido)}">
     <input type="email" name="email" placeholder="Buscar paciente por email..." required
            style="flex:1;max-width:400px;padding:10px 14px;border:1px solid #d8b4e8;border-radius:8px;font-size:14px;outline:none;">
     <button type="submit"
@@ -2553,6 +2555,7 @@ def painel_buscar():
     if not token_esperado or token_recebido != token_esperado:
         return '<h2>Acesso negado.</h2>', 403
 
+    token_safe  = urllib.parse.quote(token_recebido, safe='')
     email_busca = request.args.get('email', '').strip().lower()
     if not email_busca:
         return painel()
@@ -2587,7 +2590,7 @@ def painel_buscar():
 
     if not registros:
         conteudo = f"""
-        <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
+        <a href="/painel?token={token_safe}" class="btn-voltar">← Voltar ao painel</a>
         <h3 style="color:#9B27AF">Nenhum registro encontrado para: {_html.escape(email_busca)}</h3>"""
         return _painel_html_base(token_recebido, conteudo), 200
 
@@ -2620,13 +2623,13 @@ def painel_buscar():
           <td style="font-size:12px">{sintomas_s}</td>
           <td style="font-size:12px">{medic_s}</td>
           <td>{status}</td>
-          <td><a href="/painel/detalhes/{rid}?token={token_recebido}" title="Ver detalhes" style="color:#9B27AF;font-size:18px;text-decoration:none;">👁</a></td>
+          <td><a href="/painel/detalhes/{rid}?token={token_safe}" title="Ver detalhes" style="color:#9B27AF;font-size:18px;text-decoration:none;">👁</a></td>
         </tr>"""
 
     nome_paciente_s = _html.escape(str(nome_paciente))
     email_busca_s   = _html.escape(email_busca)
     conteudo = f"""
-    <a href="/painel?token={token_recebido}" class="btn-voltar">← Voltar ao painel</a>
+    <a href="/painel?token={token_safe}" class="btn-voltar">← Voltar ao painel</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">🌸 {nome_paciente_s}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{email_busca_s} &nbsp;|&nbsp; {len(registros)} envio(s) &nbsp;|&nbsp; Peso inicial: {_html.escape(str(peso_inicial))}kg → Atual: {_html.escape(str(peso_atual))}kg</p>
     <table>
@@ -2696,10 +2699,11 @@ def painel_detalhes(job_id):
         status = f'❌ Falhou após {tentativas}x'
     else:
         status = f'⚠️ {tentativas} tentativa(s)'
-    data_str  = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
-    nome_s    = _html.escape(nome)
-    email_enc = urllib.parse.quote(dados.get('email', ''), safe='')
-    voltar_busca = f"/painel/buscar?token={token_recebido}&email={email_enc}"
+    data_str   = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
+    nome_s     = _html.escape(nome)
+    token_safe = urllib.parse.quote(token_recebido, safe='')
+    email_enc  = urllib.parse.quote(dados.get('email', ''), safe='')
+    voltar_busca = f"/painel/buscar?token={token_safe}&email={email_enc}"
     erro_s    = _html.escape(erro) if erro else ''
 
     conteudo = f"""
