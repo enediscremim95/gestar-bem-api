@@ -264,7 +264,6 @@ def verificar_fila():
                     conn3.close()
 
             _enviar_alerta_dados_invalidos(job_id, dados, problemas)
-            _enviar_email_aguarde_paciente(dados)
             continue  # próximo job, sem incrementar tentativas
 
         except Exception as e:
@@ -381,8 +380,7 @@ PRÓXIMOS PASSOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Entre em contato com a paciente pelo WhatsApp ou email acima
 2. Corrija as informações junto com ela
-3. Acesse o painel e use "Reprocessar" no plano #{job_id} com os dados corrigidos
-   (ou peça que ela preencha o formulário novamente)
+3. Peça que ela preencha o formulário novamente com os dados corretos
 
 Painel: https://painel.programagestarbem.com.br/painel?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
 Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
@@ -1019,6 +1017,33 @@ def _validar_dados_criticos(dados):
             )
     except Exception:
         pass  # peso inválido será detectado por calcular_dados_clinicos
+
+    # Altura — valor impossível para uma adulta (< 100 cm após normalização)
+    try:
+        alt_raw = str(dados.get('altura', '')).strip().replace(',', '.')
+        alt_val = float(alt_raw.split()[0]) if alt_raw else None
+        if alt_val is not None:
+            # Converte metros para cm se necessário (ex: 1.65 → 165)
+            if 1.0 <= alt_val <= 2.5:
+                alt_val = alt_val * 100
+            if alt_val < 100:
+                erros.append(
+                    f"Altura informada ({dados.get('altura')}) parece incorreta — valor impossível para uma adulta. "
+                    f"Perguntar: 'Qual é a sua altura em centímetros? (ex: 165)'"
+                )
+    except Exception:
+        pass
+
+    # Obesidade/sobrepeso sem glicose → não é possível determinar DG com segurança
+    quadros_raw = str(dados.get('quadros_clinicos', '')).lower()
+    tem_obesidade = any(p in quadros_raw for p in ('obesidade', 'sobrepeso'))
+    glicose_raw = str(dados.get('exame_glicose', '')).strip()
+    if tem_obesidade and not glicose_raw:
+        erros.append(
+            "Paciente com obesidade/sobrepeso e sem valor de glicose em jejum informado. "
+            "Não é possível determinar com segurança se há Diabetes Gestacional. "
+            "Perguntar: 'Você tem o resultado do seu exame de glicose em jejum?'"
+        )
 
     # Idade — valores fora do razoável para uma gestante
     try:
@@ -2138,6 +2163,13 @@ Para cada suplemento: nome, motivo (relacionando com exames/sintomas dela), dose
 SEMPRE incluir o link da DUX (https://www.duxhumanhealth.com) e o cupom PACJESSICADAGOSTINI quando DUX aparecer nas marcas.
 Use os valores dos exames ja informados para personalizar as doses condicionais (Vitamina D, Ferro, B12).
 NAO inclua a frase "confirme com seu medico" — o protocolo ja foi validado clinicamente pela Dra. Jessica D'Agostini.
+
+REGRA IMPORTANTE — SINTOMAS SEM EXAMES:
+Se a paciente NAO informou exames laboratoriais MAS apresenta sintomas como fadiga/cansaco, queda de cabelo, acne/espinhas, unhas fracas ou alteracoes de humor:
+- MENCIONAR EXPLICITAMENTE no plano que esses sintomas sao indicadores frequentes de deficiencias nutricionais (B12, Vitamina D, Ferritina, Ferro)
+- ENFATIZAR que a suplementacao e ESSENCIAL mesmo sem confirmacao laboratorial
+- RECOMENDAR com urgencia que ela realize os exames o quanto antes para ajustar as doses com precisao
+- NAO omitir a suplementacao so porque os exames estao ausentes — usar as doses padrao do protocolo
 
 ---
 
