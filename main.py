@@ -45,6 +45,13 @@ class DadosInvalidosError(Exception):
     pass
 
 
+class AguardandoAprovacaoError(Exception):
+    """Plano gerado mas aguardando aprovação da equipe antes do envio à paciente."""
+    def __init__(self, motivo, pdf_b64):
+        super().__init__(motivo)
+        self.pdf_b64 = pdf_b64
+
+
 def _enviar_email_sg(destinatarios, assunto, corpo_txt, corpo_html=None,
                      nome_remetente='Gestar Bem — Sistema'):
     """
@@ -184,6 +191,15 @@ def init_db():
             ALTER TABLE exames_imagens
             ALTER COLUMN imagem_bytes DROP NOT NULL
         """)
+        cur.execute("""
+            ALTER TABLE planos_agendados ADD COLUMN IF NOT EXISTS pdf_base64 TEXT
+        """)
+        cur.execute("""
+            ALTER TABLE planos_agendados ADD COLUMN IF NOT EXISTS aguardando_aprovacao BOOLEAN DEFAULT FALSE
+        """)
+        cur.execute("""
+            ALTER TABLE planos_agendados ADD COLUMN IF NOT EXISTS motivo_aprovacao TEXT
+        """)
         conn.commit()
         cur.close()
         log.info("Banco inicializado com sucesso")
@@ -265,6 +281,26 @@ def verificar_fila():
 
             _enviar_alerta_dados_invalidos(job_id, dados, problemas)
             continue  # próximo job, sem incrementar tentativas
+
+        except AguardandoAprovacaoError as e:
+            log.info(f"[FILA] Plano #{job_id} aguardando aprovação da equipe")
+            conn2 = get_db()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute("""
+                    UPDATE planos_agendados
+                    SET processado            = TRUE,
+                        processado_em         = NOW(),
+                        aguardando_aprovacao  = TRUE,
+                        motivo_aprovacao      = %s,
+                        erro                  = NULL
+                    WHERE id = %s
+                """, (str(e), job_id))
+                conn2.commit()
+            finally:
+                conn2.close()
+            _enviar_alerta_aprovacao(job_id, dados, str(e))
+            continue
 
         except Exception as e:
             err_str = str(e).lower()
@@ -447,6 +483,25 @@ Painel: https://painel.programagestarbem.com.br/painel"""
     _enviar_email_sg(dest, f"⚠️ Dados suspeitos — {nome} (confirmar com paciente)", corpo)
 
 
+def _requer_aprovacao(dados, calculos):
+    """
+    Retorna (True, motivo) se o plano deve aguardar aprovação da equipe antes do envio.
+    Caso de uso principal: DG detectada pelos exames mas não declarada pela paciente
+    (ela pode não saber do diagnóstico — a equipe precisa avisá-la antes do plano chegar).
+    """
+    if not calculos or not calculos.get('tem_dg'):
+        return False, None
+    quadros = str(dados.get('quadros_clinicos', '')).lower()
+    dg_declarada = 'diabetes gestacional' in quadros or bool(re.search(r'\bdg\b', quadros))
+    if not dg_declarada:
+        glicose = dados.get('exame_glicose', '?')
+        return True, (
+            f"Glicose {glicose} mg/dL detectada — paciente possivelmente não sabe que tem DG. "
+            f"Entre em contato com ela para informar o diagnóstico antes de enviar o plano."
+        )
+    return False, None
+
+
 def _enviar_alerta_falha(job_id, dados, tentativas, erro):
     """Envia alerta para os responsáveis quando um job falha definitivamente."""
     nome  = dados.get('nome', '?')
@@ -464,6 +519,27 @@ Painel: https://painel.programagestarbem.com.br/painel?token={urllib.parse.quote
 Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}"""
     dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
     _enviar_email_sg(dest, f"⚠️ FALHA: Plano de {nome} não entregue", corpo)
+
+
+def _enviar_alerta_aprovacao(job_id, dados, motivo):
+    """Notifica equipe que um plano foi gerado mas precisa de aprovação antes do envio."""
+    nome  = dados.get('nome', '?')
+    email = dados.get('email', '?')
+    token_enc = urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')
+    corpo = f"""🔵 APROVAÇÃO NECESSÁRIA — Plano gerado mas não enviado
+
+Paciente: {nome}
+Email: {email}
+
+MOTIVO:
+{motivo}
+
+O plano foi gerado com sucesso e está aguardando sua aprovação.
+Acesse o painel, revise o plano e clique em "Aprovar e enviar" quando estiver pronto.
+
+Detalhes: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={token_enc}"""
+    dest = [e.strip() for e in os.environ.get('EMAIL_ALERTA', 'enediscremim95@gmail.com').split(',') if e.strip()]
+    _enviar_email_sg(dest, f"🔵 Aprovação necessária — plano de {nome}", corpo)
 
 
 def limpar_banco():
@@ -484,6 +560,16 @@ def limpar_banco():
         imgs_zeradas = cur.rowcount
         if imgs_zeradas > 0:
             log.info(f"[LIMPEZA] {imgs_zeradas} imagem(ns) de exame com bytes zerados (>30 dias)")
+
+        # Limpar PDF base64 de planos enviados há mais de 7 dias (libera espaço no Neon)
+        cur.execute("""
+            UPDATE planos_agendados
+            SET pdf_base64 = NULL
+            WHERE pdf_base64 IS NOT NULL
+            AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)
+            AND criado_em < NOW() - INTERVAL '7 days'
+        """)
+        log.info("[LIMPAR] PDFs antigos removidos do banco")
 
         # Apagar planos processados com mais de 270 dias
         cur.execute("""
@@ -2264,6 +2350,29 @@ Se encontrar qualquer inconsistencia nos 12 pontos acima, corrija antes de entre
     nome_pdf     = nome_arquivo_pdf(nome, semanas_gestacao)
     pdf_nutri    = base64.b64decode(pdf_b64)
 
+    # ── Salvar PDF no banco para preview no painel ────────────────────────────
+    job_id_interno = dados.get('_plano_id')
+    if job_id_interno:
+        try:
+            conn_pdf = get_db()
+            try:
+                cur_pdf = conn_pdf.cursor()
+                cur_pdf.execute(
+                    "UPDATE planos_agendados SET pdf_base64 = %s WHERE id = %s",
+                    (pdf_b64, job_id_interno)
+                )
+                conn_pdf.commit()
+            finally:
+                conn_pdf.close()
+        except Exception as ex:
+            log.warning(f"[PDF] Falha ao salvar pdf_base64 no banco: {ex}")
+
+    # ── Verificar se plano precisa de aprovação antes do envio ───────────────
+    requer, motivo_aprov = _requer_aprovacao(dados, calculos)
+    if requer:
+        log.info(f"[APROVACAO] Plano de {nome} aguardando aprovação: {motivo_aprov}")
+        raise AguardandoAprovacaoError(motivo_aprov, pdf_b64)
+
     # ── Selecionar links de treino (tokens únicos por paciente) ─────────────
     links_treino, treino_aguardando_liberacao = selecionar_links_exercicio(dados, trimestre_codigo, email=email)
 
@@ -2277,6 +2386,151 @@ Se encontrar qualquer inconsistencia nos 12 pontos acima, corrija antes de entre
     enviar_email_pdf(email, nome, pdfs_email, links_treino=links_treino,
                      treino_aguardando_liberacao=treino_aguardando_liberacao)
     log.info(f"[INTERNO] Concluido para {nome} — email enviado para {email} com {len(links_treino)} link(s) de treino")
+
+
+# ── Preview do PDF gerado ─────────────────────────────────────────────────────
+
+@app.route('/painel/pdf/<int:job_id>')
+def painel_pdf(job_id):
+    """Serve o PDF gerado para preview no painel. Requer autenticação."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2>Acesso negado.</h2>', 403
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT pdf_base64, dados->>'nome' FROM planos_agendados WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+    finally:
+        if conn: conn.close()
+    if not row or not row[0]:
+        return '<h2 style="font-family:sans-serif">PDF não disponível para este plano.</h2>', 404
+    pdf_bytes = base64.b64decode(row[0])
+    nome_s = (row[1] or 'Plano').replace(' ', '_')
+    from flask import Response
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'inline; filename="{nome_s}_preview.pdf"'}
+    )
+
+
+# ── Editar dados clínicos de um plano ─────────────────────────────────────────
+
+@app.route('/painel/dados/<int:job_id>', methods=['POST'])
+def painel_editar_dados(job_id):
+    """Atualiza campos clínicos no JSONB dados do plano. Não reprocessa — só salva."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2>Acesso negado.</h2>', 403
+
+    CAMPOS_EDITAVEIS = [
+        'semanas_gestacao', 'peso_atual', 'altura', 'idade',
+        'exame_glicose', 'quadros_clinicos', 'intolerancia', 'observacoes',
+    ]
+    novos = {c: request.form.get(c, '').strip() for c in CAMPOS_EDITAVEIS if request.form.get(c, '').strip()}
+    if not novos:
+        token_safe = urllib.parse.quote(token_recebido, safe='')
+        return redirect(f"/painel/detalhes/{job_id}?token={token_safe}")
+
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE planos_agendados SET dados = dados || %s::jsonb WHERE id = %s",
+            (json.dumps(novos, ensure_ascii=False), job_id)
+        )
+        if cur.rowcount == 0:
+            return '<h2>Plano não encontrado.</h2>', 404
+        conn.commit()
+        log.info(f"[PAINEL] Dados editados para plano #{job_id}: {list(novos.keys())}")
+    except Exception as e:
+        log.error(f"[PAINEL/DADOS] Erro: {e}")
+        return '<h2>Erro ao salvar. Tente novamente.</h2>', 500
+    finally:
+        if conn: conn.close()
+
+    token_safe = urllib.parse.quote(token_recebido, safe='')
+    return redirect(f"/painel/detalhes/{job_id}?token={token_safe}")
+
+
+# ── Aprovar e enviar plano ────────────────────────────────────────────────────
+
+@app.route('/painel/aprovar/<int:job_id>', methods=['POST'])
+def painel_aprovar(job_id):
+    """Envia o plano gerado para a paciente após aprovação da equipe."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2>Acesso negado.</h2>', 403
+
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT dados, pdf_base64, aguardando_aprovacao
+            FROM planos_agendados WHERE id = %s
+        """, (job_id,))
+        row = cur.fetchone()
+    finally:
+        if conn: conn.close()
+
+    if not row:
+        return '<h2>Plano não encontrado.</h2>', 404
+    dados, pdf_b64, aguardando = row
+    if not pdf_b64:
+        token_safe = urllib.parse.quote(token_recebido, safe='')
+        return redirect(f"/painel/detalhes/{job_id}?token={token_safe}&erro=pdf_ausente")
+
+    nome  = dados.get('nome', 'Paciente')
+    email = dados.get('email', '').strip()
+    semanas = dados.get('semanas_gestacao', '1')
+
+    # Calcular trimestre para selecionar treinos
+    try:
+        _s = _extrair_numero(semanas, inteiro=True)
+        trimestre_codigo = 'III' if _s > 27 else ('II' if _s > 13 else 'I')
+    except Exception:
+        trimestre_codigo = 'I'
+
+    try:
+        pdf_bytes = base64.b64decode(pdf_b64)
+        nome_pdf  = nome_arquivo_pdf(nome, semanas)
+        links_treino, treino_aguardando = selecionar_links_exercicio(dados, trimestre_codigo, email=email)
+        enviar_email_pdf(email, nome, [(pdf_bytes, nome_pdf)],
+                         links_treino=links_treino,
+                         treino_aguardando_liberacao=treino_aguardando)
+        log.info(f"[APROVAR] Plano #{job_id} aprovado e enviado para {email}")
+    except Exception as e:
+        log.error(f"[APROVAR] Falha ao enviar plano #{job_id}: {e}")
+        return f'<h2 style="font-family:sans-serif;color:#c00">Erro ao enviar: {_html.escape(str(e))}</h2>', 500
+
+    # Marcar como enviado e limpar dados temporários
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE planos_agendados
+            SET processado           = TRUE,
+                processado_em        = NOW(),
+                erro                 = NULL,
+                aguardando_aprovacao = FALSE,
+                motivo_aprovacao     = NULL,
+                pdf_base64           = NULL
+            WHERE id = %s
+        """, (job_id,))
+        conn.commit()
+    finally:
+        if conn: conn.close()
+
+    token_safe = urllib.parse.quote(token_recebido, safe='')
+    return redirect(f"/painel/detalhes/{job_id}?token={token_safe}")
 
 
 # ── Endpoint de teste de email ────────────────────────────────────────────────
@@ -2350,7 +2604,8 @@ def painel():
                 processado,
                 tentativas,
                 processado_em,
-                erro
+                erro,
+                aguardando_aprovacao
             FROM planos_agendados
             ORDER BY criado_em DESC
             LIMIT 20
@@ -2376,12 +2631,14 @@ def painel():
     token_safe = urllib.parse.quote(token_recebido, safe='')
     linhas_html = ''
     for reg in registros:
-        rid, nome, email, agendado, processado, tentativas, processado_em, erro = reg
+        rid, nome, email, agendado, processado, tentativas, processado_em, erro, aguardando = reg
         # Escape para evitar XSS — campos vêm diretamente do formulário das pacientes
         nome_s  = _html.escape(nome  or '-')
         email_s = _html.escape(email or '-')
         erro_s  = _html.escape((erro[:60] + '...') if erro and len(erro) > 60 else (erro or ''))
-        if processado and not erro:
+        if aguardando:
+            status = '🔵 Aprovação'
+        elif processado and not erro:
             status = '✅ Enviado'
         elif processado and erro and erro.startswith('DADOS_INVALIDOS'):
             status = '🚫 Dados Inválidos'
@@ -2738,7 +2995,12 @@ def painel_detalhes(job_id):
     try:
         conn = get_db()
         cur  = conn.cursor()
-        cur.execute("SELECT dados, criado_em, processado, tentativas, erro FROM planos_agendados WHERE id = %s", (job_id,))
+        cur.execute("""
+            SELECT dados, criado_em, processado, tentativas, erro,
+                   aguardando_aprovacao, motivo_aprovacao,
+                   (pdf_base64 IS NOT NULL) AS tem_pdf
+            FROM planos_agendados WHERE id = %s
+        """, (job_id,))
         row = cur.fetchone()
         cur.close()
     except Exception as e:
@@ -2750,7 +3012,7 @@ def painel_detalhes(job_id):
     if not row:
         return '<h2>Registro nao encontrado.</h2>', 404
 
-    dados, criado_em, processado, tentativas, erro = row
+    dados, criado_em, processado, tentativas, erro, aguardando, motivo_aprov, tem_pdf = row
     nome  = dados.get('nome', '-')
     email = dados.get('email', '-')
 
@@ -2775,7 +3037,9 @@ def painel_detalhes(job_id):
         if valor:
             linhas += f'<tr><td class="label">{_html.escape(str(label))}</td><td class="valor">{_html.escape(str(valor))}</td></tr>'
 
-    if processado and not erro:
+    if aguardando:
+        status = '🔵 Aguardando Aprovação'
+    elif processado and not erro:
         status = '✅ Enviado com sucesso'
     elif processado and erro and erro.startswith('DADOS_INVALIDOS'):
         status = '🚫 Dados Inválidos — aguardando correção'
@@ -2789,6 +3053,73 @@ def painel_detalhes(job_id):
     email_enc  = urllib.parse.quote(dados.get('email', ''), safe='')
     voltar_busca = f"/painel/buscar?token={token_safe}&email={email_enc}"
     erro_s    = _html.escape(erro) if erro else ''
+
+    btn_preview = ''
+    if tem_pdf:
+        btn_preview = f"""
+    <a href="/painel/pdf/{job_id}?token={token_safe}" target="_blank"
+       style="display:inline-block;margin-top:12px;background:#1976D2;color:#fff;
+              border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;
+              text-decoration:none;">
+      👁 Visualizar plano
+    </a>"""
+
+    btn_aprovar = ''
+    if aguardando:
+        btn_aprovar = f"""
+    <div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:8px;padding:16px;margin-top:20px;">
+      <p style="margin:0 0 8px;font-weight:600;color:#1565C0">🔵 Aguardando aprovação</p>
+      <p style="margin:0 0 12px;font-size:13px;color:#444">{_html.escape(motivo_aprov or '')}</p>
+      <form method="POST" action="/painel/aprovar/{job_id}?token={token_safe}"
+            onsubmit="return confirm('Aprovar e enviar o plano para {_html.escape(nome)}?');"
+            style="display:inline-block;">
+        <button type="submit"
+          style="background:#2E7D32;color:#fff;border:none;border-radius:8px;
+                 padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;">
+          ✅ Aprovar e enviar
+        </button>
+      </form>
+    </div>"""
+
+    CAMPOS_EDITAVEIS_LABELS = [
+        ('semanas_gestacao', 'Semanas de gestação'),
+        ('peso_atual', 'Peso atual (kg)'),
+        ('altura', 'Altura (cm)'),
+        ('idade', 'Idade'),
+        ('exame_glicose', 'Glicose em jejum (mg/dL)'),
+        ('quadros_clinicos', 'Quadros clínicos'),
+        ('intolerancia', 'Intolerância alimentar'),
+        ('observacoes', 'Observações adicionais'),
+    ]
+    campos_edit_html = ''
+    for chave, label in CAMPOS_EDITAVEIS_LABELS:
+        valor_atual = _html.escape(str(dados.get(chave, '')))
+        campos_edit_html += f"""
+    <tr>
+      <td class="label">{label}</td>
+      <td><input type="text" name="{chave}" value="{valor_atual}"
+                 style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;"></td>
+    </tr>"""
+
+    form_editar = f"""
+<details style="margin-top:20px;">
+  <summary style="cursor:pointer;font-weight:600;color:#9B27AF;font-size:14px;padding:10px 0;">
+    ✏️ Editar dados clínicos
+  </summary>
+  <form method="POST" action="/painel/dados/{job_id}?token={token_safe}" style="margin-top:12px;">
+    <table style="max-width:700px;width:100%">
+      <tbody>{campos_edit_html}</tbody>
+    </table>
+    <p style="font-size:12px;color:#888;margin-top:8px;">
+      Após salvar, clique em "Reprocessar plano" para gerar um novo plano com os dados corrigidos.
+    </p>
+    <button type="submit"
+      style="margin-top:8px;background:#F57C00;color:#fff;border:none;border-radius:8px;
+             padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;">
+      💾 Salvar alterações
+    </button>
+  </form>
+</details>"""
 
     btn_reprocessar = f"""
     <form method="POST" action="/painel/reprocessar/{job_id}?token={token_safe}"
@@ -2811,7 +3142,10 @@ def painel_detalhes(job_id):
     <table style="max-width:700px">
       <tbody>{linhas}</tbody>
     </table>
-    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro else ''}
+    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro and not aguardando else ''}
+    {btn_preview}
+    {btn_aprovar}
+    {form_editar}
     {btn_reprocessar}"""
 
     return _painel_html_base(token_recebido, conteudo), 200
@@ -2832,11 +3166,14 @@ def painel_reprocessar(job_id):
         # Reseta o plano principal
         cur.execute("""
             UPDATE planos_agendados
-            SET processado        = FALSE,
-                tentativas        = 0,
-                proxima_tentativa = NOW(),
-                erro              = NULL,
-                processado_em     = NULL
+            SET processado            = FALSE,
+                tentativas            = 0,
+                proxima_tentativa     = NOW(),
+                erro                  = NULL,
+                processado_em         = NULL,
+                aguardando_aprovacao  = FALSE,
+                motivo_aprovacao      = NULL,
+                pdf_base64            = NULL
             WHERE id = %s
         """, (job_id,))
         if cur.rowcount == 0:
