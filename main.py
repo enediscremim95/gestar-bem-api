@@ -76,7 +76,8 @@ def _enviar_email_sg(destinatarios, assunto, corpo_txt, corpo_html=None,
 
     payload = {
         "personalizations": [{"to": [{"email": d} for d in destinatarios]}],
-        "from":    {"email": "planosgestarbem@gmail.com", "name": nome_remetente},
+        "from":    {"email": "planos@programagestarbem.com.br", "name": nome_remetente},
+        "reply_to": {"email": "planosgestarbem@gmail.com", "name": nome_remetente},
         "subject": assunto,
         "content": content,
         "tracking_settings": {"click_tracking": {"enable": False}},
@@ -736,7 +737,7 @@ atexit.register(lambda: _scheduler.shutdown(wait=False))
 def enviar_email_pdf(destinatario, nome_paciente, pdfs_lista, links_treino=None, treino_aguardando_liberacao=False):
     """Envia PDF de nutricao (anexo) + links de treino (corpo) via SendGrid."""
     sg_key    = os.environ.get('SENDGRID_API_KEY', '')
-    remetente = 'planosgestarbem@gmail.com'
+    remetente = 'planos@programagestarbem.com.br'
 
     if not sg_key:
         raise ValueError("SENDGRID_API_KEY nao configurado no ambiente")
@@ -825,6 +826,7 @@ Equipe Gestar Bem 🌸"""
     payload = {
         "personalizations": [{"to": [{"email": destinatario}]}],
         "from":    {"email": remetente, "name": "Gestar Bem"},
+        "reply_to": {"email": "planosgestarbem@gmail.com", "name": "Gestar Bem"},
         "subject": "Seu Plano Personalizado — Gestar Bem",
         "content": [
             {"type": "text/plain", "value": corpo_txt},
