@@ -2710,7 +2710,7 @@ def painel():
     <thead>
       <tr>
         <th>#</th><th>Paciente</th><th>Email</th>
-        <th>Agendado</th><th>Processado</th><th>Status</th><th>Erro</th>
+        <th>Agendado</th><th>Processado</th><th>Status</th><th>Erro</th><th></th>
       </tr>
     </thead>
     <tbody>{linhas_html}</tbody>
@@ -2896,7 +2896,8 @@ def painel_buscar():
                    dados->>'medicamentos'       AS medicamentos,
                    processado,
                    tentativas,
-                   criado_em
+                   criado_em,
+                   aguardando_aprovacao
             FROM planos_agendados
             WHERE LOWER(dados->>'email') = %s
             ORDER BY criado_em ASC
@@ -2921,14 +2922,19 @@ def painel_buscar():
 
     linhas = ''
     for i, reg in enumerate(registros):
-        rid, nome, email, semanas, peso, complic, sintomas, medic, processado, tentativas, criado_em = reg
+        rid, nome, email, semanas, peso, complic, sintomas, medic, processado, tentativas, criado_em, aguardando = reg
         # Escape de todos os campos que vêm do banco (preenchidos pelas pacientes)
         semanas_s = _html.escape(str(semanas or '-'))
         peso_s    = _html.escape(str(peso    or '-'))
         complic_s = _html.escape((complic  or '-')[:60])
         sintomas_s= _html.escape((sintomas or '-')[:60])
         medic_s   = _html.escape((medic    or '-')[:40])
-        status    = '✅' if processado else f'⚠️ {tentativas}x'
+        if aguardando:
+            status = '🔵 Aprovação'
+        elif processado:
+            status = '✅'
+        else:
+            status = f'⚠️ {tentativas}x'
         data_str  = criado_em.strftime('%d/%m/%Y') if criado_em else '-'
         try:
             sw = int(''.join(filter(str.isdigit, semanas or '0')) or '0')
