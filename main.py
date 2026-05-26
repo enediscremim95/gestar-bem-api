@@ -2878,7 +2878,7 @@ def _painel_html_base(token, conteudo_html):
 </head>
 <body>
   <div class="header">
-    <a href="/painel?token={token_recebido}" style="display:flex;align-items:center;gap:12px;text-decoration:none;">
+    <a href="/painel?token={token}" style="display:flex;align-items:center;gap:12px;text-decoration:none;">
       <div style="background:#fff;border-radius:50%;width:60px;height:60px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
         <img src="/imagens/gestar_ilustracao.png" alt="Logo" style="height:52px;">
       </div>
