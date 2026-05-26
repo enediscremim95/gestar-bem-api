@@ -2595,13 +2595,15 @@ def painel():
         if conn:
             conn.close()
 
-    def linha_cor(processado, tentativas, erro):
+    def linha_cor(processado, tentativas, erro, aguardando=False):
+        if aguardando:
+            return '#E3F2FD'  # azul claro — aguardando aprovação
         if processado and not erro:
-            return '#e8f5e9'  # verde claro
+            return '#e8f5e9'  # verde claro — enviado
         if not processado and tentativas > 0:
-            return '#fff3e0'  # laranja claro
+            return '#fff3e0'  # laranja claro — com falha
         if erro:
-            return '#ffebee'  # vermelho claro
+            return '#ffebee'  # vermelho claro — erro
         return '#ffffff'
 
     token_safe = urllib.parse.quote(token_recebido, safe='')
@@ -2622,7 +2624,7 @@ def painel():
             status = '🕐 Agendado'
         else:
             status = f'⚠️ Tentativas: {tentativas}'
-        cor    = linha_cor(processado, tentativas, erro)
+        cor    = linha_cor(processado, tentativas, erro, aguardando)
         ag_str = agendado.strftime('%d/%m %H:%M') if agendado else '-'
         pr_str = processado_em.strftime('%d/%m %H:%M') if processado_em else '-'
         linhas_html += f"""
