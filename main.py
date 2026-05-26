@@ -1694,17 +1694,6 @@ def _gerar_plano_interno(dados):
             log.info(f"[VISION] {len(valores_vision)} valor(es) extraído(s) para {nome}: {list(valores_vision.keys())}")
             dados.update(valores_vision)  # enriquece dados com valores reais dos exames
 
-    # ── Validação de obesidade+glicose — APÓS Vision (imagem pode ter fornecido a glicose) ─
-    quadros_raw = str(dados.get('quadros_clinicos', '')).lower()
-    tem_obesidade = any(p in quadros_raw for p in ('obesidade', 'sobrepeso'))
-    glicose_pos_vision = str(dados.get('exame_glicose', '')).strip()
-    if tem_obesidade and not glicose_pos_vision:
-        raise DadosInvalidosError(
-            'DADOS_INVALIDOS: Paciente com obesidade/sobrepeso e sem valor de glicose em jejum informado. '
-            'Não é possível determinar com segurança se há Diabetes Gestacional. '
-            "Perguntar: 'Você tem o resultado do seu exame de glicose em jejum?'"
-        )
-
     # ── Bloco de resultados de exames (Vision + texto) para injetar no prompt ──
     def _val(campo):
         v = dados.get(campo, '')
