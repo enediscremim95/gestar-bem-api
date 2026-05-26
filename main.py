@@ -1094,7 +1094,6 @@ def _validar_dados_criticos(dados):
     except Exception:
         pass
 
-    # Obesidade/sobrepeso sem glicose → não é possível determinar DG com segurança
     # Idade — valores fora do razoável para uma gestante
     try:
         idade_raw = _extrair_numero(dados.get('idade', ''))
