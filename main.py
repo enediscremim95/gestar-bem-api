@@ -3143,7 +3143,7 @@ def painel_detalhes(job_id):
     </p>"""
 
     conteudo = f"""
-    <a href="{voltar_busca}" class="btn-voltar">← Voltar ao histórico de {nome_s}</a>
+    <a href="{voltar_busca}" class="btn-voltar">← Voltar</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{data_str} &nbsp;|&nbsp; {status}</p>
     <table style="max-width:700px">
