@@ -257,9 +257,9 @@ def verificar_fila():
             log.info(f"[FILA] Job {job_id} concluido com sucesso")
 
         except DadosInvalidosError as e:
-            # Dados inválidos: marca como concluído sem retentar, notifica responsáveis e paciente
+            # Dados inválidos: fica na fila de aprovação para a equipe corrigir no painel
             problemas = str(e).replace('DADOS_INVALIDOS: ', '').split(' | ')
-            log.warning(f"[FILA] Job {job_id} BLOQUEADO por dados inválidos — {problemas}")
+            log.warning(f"[FILA] Job {job_id} aguardando correção de dados — {problemas}")
 
             conn3 = None
             try:
@@ -267,9 +267,11 @@ def verificar_fila():
                 cur3  = conn3.cursor()
                 cur3.execute("""
                     UPDATE planos_agendados
-                    SET processado    = TRUE,
-                        processado_em = NOW(),
-                        erro          = %s
+                    SET processado           = TRUE,
+                        processado_em        = NOW(),
+                        aguardando_aprovacao = TRUE,
+                        motivo_aprovacao     = %s,
+                        erro                 = NULL
                     WHERE id = %s
                 """, (str(e)[:500], job_id))
                 conn3.commit()
@@ -388,10 +390,10 @@ def _enviar_alerta_dados_invalidos(job_id, dados, problemas):
 
     lista_problemas = '\n'.join(f'  • {p}' for p in problemas)
 
-    corpo = f"""🚫 PLANO BLOQUEADO — Dados inválidos no formulário
+    corpo = f"""⚠️ PLANO AGUARDANDO CORREÇÃO — Dados inválidos no formulário
 
-O plano de {nome} NÃO foi gerado pois os dados parecem incorretos.
-É necessário entrar em contato com a paciente para corrigir as informações.
+O plano de {nome} ficou retido pois os dados parecem incorretos.
+Acesse o painel, corrija os dados e clique em Reprocessar — sem precisar pedir para a paciente preencher o formulário de novo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONTATO DA PACIENTE
@@ -415,11 +417,10 @@ Altura:              {altura}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PRÓXIMOS PASSOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Entre em contato com a paciente pelo WhatsApp ou email acima
-2. Corrija as informações junto com ela
-3. Peça que ela preencha o formulário novamente com os dados corretos
+1. Acesse os detalhes do plano no painel
+2. Clique em "Editar dados clínicos" e corrija o campo incorreto
+3. Clique em "Reprocessar plano" — o plano será gerado e enviado automaticamente
 
-Painel: https://painel.programagestarbem.com.br/painel?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
 Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_id}?token={urllib.parse.quote(os.environ.get('PAINEL_TOKEN', ''), safe='')}
 """
 
