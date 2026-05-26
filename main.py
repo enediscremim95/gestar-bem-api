@@ -3143,7 +3143,10 @@ def painel_detalhes(job_id):
     </p>"""
 
     conteudo = f"""
-    <a href="/painel?token={token_recebido}" class="btn" style="background:#6c757d;margin-bottom:20px;display:inline-block;">← Voltar</a>
+    <div style="display:flex;gap:10px;margin-bottom:20px;">
+      <a href="/painel?token={token_recebido}" class="btn" style="background:#6c757d;">← Voltar</a>
+      <a href="{voltar_busca}" class="btn" style="background:#6c757d;">📋 Ver histórico da paciente</a>
+    </div>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{data_str} &nbsp;|&nbsp; {status}</p>
     <table style="max-width:700px">
@@ -3153,10 +3156,7 @@ def painel_detalhes(job_id):
     {btn_preview}
     {btn_aprovar}
     {form_editar}
-    {btn_reprocessar}
-    <div style="margin-top:32px;padding-top:20px;border-top:1px solid #f0e6f6;">
-      <a href="{voltar_busca}" class="btn" style="background:#6c757d;">📋 Ver histórico da paciente</a>
-    </div>"""
+    {btn_reprocessar}"""
 
     return _painel_html_base(token_recebido, conteudo), 200
 
