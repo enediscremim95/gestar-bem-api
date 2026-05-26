@@ -428,38 +428,6 @@ Detalhes do plano: https://painel.programagestarbem.com.br/painel/detalhes/{job_
     _enviar_email_sg(dest, f"🚫 PLANO BLOQUEADO — Dados inválidos — {nome}", corpo)
 
 
-def _enviar_email_aguarde_paciente(dados):
-    """Avisa a paciente que os dados precisam ser confirmados e a equipe entrará em contato."""
-    email_paciente = dados.get('email', '').strip()
-    if not email_paciente or '@' not in email_paciente:
-        return
-    nome     = dados.get('nome', 'Paciente')
-    nome_html = _html.escape(nome)
-    corpo_txt = (
-        f"Olá, {nome}!\n\n"
-        "Recebemos seu formulário do Gestar Bem com sucesso.\n\n"
-        "Durante a análise das suas informações, identificamos que alguns dados precisam ser "
-        "confirmados para que possamos montar seu plano com total segurança e precisão.\n\n"
-        "Alguém da nossa equipe entrará em contato em breve pelo WhatsApp ou email "
-        "para confirmar os dados e garantir que seu plano seja personalizado corretamente para você.\n\n"
-        "Com carinho,\nEquipe Gestar Bem\nDra. Jessica D'Agostini e equipe"
-    )
-    corpo_html = f"""
-<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#333;">
-  <h2 style="color:#7B1FA2;">Olá, {nome_html}!</h2>
-  <p>Recebemos seu formulário do <strong>Gestar Bem</strong> com sucesso.</p>
-  <p>Durante a análise das suas informações, identificamos que alguns dados precisam ser
-  confirmados para que possamos montar seu plano com total segurança e precisão.</p>
-  <p><strong>Alguém da nossa equipe entrará em contato em breve pelo WhatsApp ou email
-  para confirmar os dados e garantir que seu plano seja personalizado corretamente para você.</strong></p>
-  <p style="margin-top:24px;">Com carinho,<br>
-  <strong>Equipe Gestar Bem</strong><br>
-  <em>Dra. Jessica D'Agostini e equipe</em></p>
-</div>"""
-    _enviar_email_sg(email_paciente,
-                     "Seu formulário foi recebido — confirmaremos seus dados em breve",
-                     corpo_txt, corpo_html=corpo_html, nome_remetente='Gestar Bem')
-
 
 def _enviar_alerta_dados_suspeitos(dados, problemas):
     """Avisa a equipe quando peso ou altura parecem incorretos (plano gerado com auto-correção)."""
@@ -610,7 +578,9 @@ def check_diario():
                 COUNT(*) FILTER (WHERE processado = FALSE)                         AS pendentes,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)      AS com_falha,
                 COUNT(*) FILTER (WHERE processado = TRUE
-                                 AND processado_em >= NOW() - INTERVAL '24 hours') AS enviados_24h
+                                 AND processado_em >= NOW() - INTERVAL '24 hours'
+                                 AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)
+                                 AND erro IS NULL)                                 AS enviados_24h
             FROM planos_agendados
         """)
         row = cur.fetchone()
@@ -2586,12 +2556,14 @@ def painel():
                 COUNT(*)                                                                       AS total,
                 COUNT(*) FILTER (WHERE processado = TRUE
                                  AND processado_em >= NOW() - INTERVAL '24 hours'
-                                 AND (erro IS NULL OR erro NOT LIKE 'DADOS_INVALIDOS%'))       AS hoje,
+                                 AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)
+                                 AND erro IS NULL)                                             AS hoje,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas = 0
                                  AND (proxima_tentativa IS NULL OR proxima_tentativa <= NOW())) AS pendentes,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)                  AS com_falha,
                 COUNT(*) FILTER (WHERE processado = TRUE
-                                 AND erro IS NULL)                                             AS concluidos,
+                                 AND erro IS NULL
+                                 AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)) AS concluidos,
                 COUNT(*) FILTER (WHERE aguardando_aprovacao = TRUE)                            AS dados_invalidos
             FROM planos_agendados
         """)
@@ -2790,7 +2762,9 @@ def health():
                 COUNT(*) FILTER (WHERE processado = FALSE)                          AS pendentes,
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)       AS com_falha,
                 COUNT(*) FILTER (WHERE processado = TRUE
-                                 AND processado_em >= NOW() - INTERVAL '24 hours')  AS enviados_24h
+                                 AND processado_em >= NOW() - INTERVAL '24 hours'
+                                 AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)
+                                 AND erro IS NULL)                                  AS enviados_24h
             FROM planos_agendados
         """)
         row = cur.fetchone()
