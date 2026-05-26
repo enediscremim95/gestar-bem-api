@@ -569,6 +569,7 @@ def limpar_banco():
             SET pdf_base64 = NULL
             WHERE pdf_base64 IS NOT NULL
             AND (aguardando_aprovacao IS NULL OR aguardando_aprovacao = FALSE)
+            AND processado = TRUE
             AND criado_em < NOW() - INTERVAL '7 days'
         """)
         log.info("[LIMPAR] PDFs antigos removidos do banco")
@@ -2591,7 +2592,7 @@ def painel():
                 COUNT(*) FILTER (WHERE processado = FALSE AND tentativas > 0)                  AS com_falha,
                 COUNT(*) FILTER (WHERE processado = TRUE
                                  AND erro IS NULL)                                             AS concluidos,
-                COUNT(*) FILTER (WHERE erro LIKE 'DADOS_INVALIDOS%')                           AS dados_invalidos
+                COUNT(*) FILTER (WHERE aguardando_aprovacao = TRUE)                            AS dados_invalidos
             FROM planos_agendados
         """)
         r = cur.fetchone()
@@ -2643,8 +2644,6 @@ def painel():
             status = '🔵 Aprovação'
         elif processado and not erro:
             status = '✅ Enviado'
-        elif processado and erro and erro.startswith('DADOS_INVALIDOS'):
-            status = '🚫 Dados Inválidos'
         elif processado and erro:
             status = '❌ Falhou'
         elif not processado and tentativas == 0:
@@ -2730,7 +2729,7 @@ def painel():
     <div class="card"><div class="num">{hoje}</div><div class="lab">Enviados hoje</div></div>
     <div class="card"><div class="num">{pendentes}</div><div class="lab">Pendentes</div></div>
     <div class="card {'alerta' if com_falha > 0 else ''}"><div class="num">{com_falha}</div><div class="lab">Com falha</div></div>
-    <div class="card {'alerta' if dados_invalidos > 0 else ''}"><div class="num">{dados_invalidos}</div><div class="lab">Dados Inválidos</div></div>
+    <div class="card {'alerta' if dados_invalidos > 0 else ''}"><div class="num">{dados_invalidos}</div><div class="lab">Aguardando aprovação</div></div>
     <div class="card"><div class="num">{concluidos}</div><div class="lab">Total concluídos</div></div>
     <div class="card"><div class="num">{total}</div><div class="lab">Total geral</div></div>
   </div>
@@ -3073,10 +3072,9 @@ def painel_detalhes(job_id):
 
     btn_aprovar = ''
     if aguardando:
-        btn_aprovar = f"""
-    <div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:8px;padding:16px;margin-top:20px;">
-      <p style="margin:0 0 8px;font-weight:600;color:#1565C0">🔵 Aguardando aprovação</p>
-      <p style="margin:0 0 12px;font-size:13px;color:#444">{_html.escape(motivo_aprov or '')}</p>
+        botao_aprovar = ''
+        if tem_pdf:
+            botao_aprovar = f"""
       <form method="POST" action="/painel/aprovar/{job_id}?token={token_safe}"
             onsubmit="return confirm('Aprovar e enviar o plano para {_html.escape(nome)}?');"
             style="display:inline-block;">
@@ -3085,7 +3083,14 @@ def painel_detalhes(job_id):
                  padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;">
           ✅ Aprovar e enviar
         </button>
-      </form>
+      </form>"""
+        else:
+            botao_aprovar = '<p style="font-size:13px;color:#888;margin:0">Corrija os dados e reprocesse para gerar o PDF antes de aprovar.</p>'
+        btn_aprovar = f"""
+    <div style="background:#E3F2FD;border:1px solid #90CAF9;border-radius:8px;padding:16px;margin-top:20px;">
+      <p style="margin:0 0 8px;font-weight:600;color:#1565C0">🔵 Aguardando aprovação</p>
+      <p style="margin:0 0 12px;font-size:13px;color:#444">{_html.escape(motivo_aprov or '')}</p>
+      {botao_aprovar}
     </div>"""
 
     CAMPOS_EDITAVEIS_LABELS = [
