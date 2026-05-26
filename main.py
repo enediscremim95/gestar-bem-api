@@ -2938,7 +2938,7 @@ def painel_buscar():
 
     if not registros:
         conteudo = f"""
-        <a href="/painel?token={token_safe}" class="btn-voltar">← Voltar ao painel</a>
+        <a href="/painel?token={token_safe}" class="btn" style="background:#6c757d;">← Voltar</a>
         <h3 style="color:#9B27AF">Nenhum registro encontrado para: {_html.escape(email_busca)}</h3>"""
         return _painel_html_base(token_recebido, conteudo), 200
 
@@ -2977,7 +2977,7 @@ def painel_buscar():
     nome_paciente_s = _html.escape(str(nome_paciente))
     email_busca_s   = _html.escape(email_busca)
     conteudo = f"""
-    <a href="/painel?token={token_safe}" class="btn-voltar">← Voltar ao painel</a>
+    <a href="/painel?token={token_safe}" class="btn" style="background:#6c757d;">← Voltar</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">🌸 {nome_paciente_s}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{email_busca_s} &nbsp;|&nbsp; {len(registros)} envio(s) &nbsp;|&nbsp; Peso inicial: {_html.escape(str(peso_inicial))}kg → Atual: {_html.escape(str(peso_atual))}kg</p>
     <table>
