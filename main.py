@@ -1578,7 +1578,9 @@ def gerar_plano():
                 if len(b64_str) > MAX_IMG_B64:
                     log.warning(f"[IMAGEM] {campo_img} excede limite ({len(b64_str)//1024}KB base64) — ignorando")
                     continue
-                img_bytes = base64.b64decode(b64_str)
+                # Remove prefixo data URI se presente (ex: "data:image/png;base64,...")
+                raw_b64 = b64_str.split(',', 1)[1] if ',' in b64_str else b64_str
+                img_bytes = base64.b64decode(raw_b64)
                 mime_type_detectado = _detectar_mime_type(img_bytes)
                 cur.execute("""
                     INSERT INTO exames_imagens (plano_id, campo, imagem_bytes, mime_type)
