@@ -3188,7 +3188,7 @@ def painel_detalhes(job_id):
     # Botão de cancelar: só aparece se o plano ainda pode ser parado
     # (não enviado com sucesso e não já cancelado)
     cancelado_ja = bool(erro and erro.startswith('CANCELADO'))
-    enviado_ok   = processado and not erro
+    enviado_ok   = processado and not erro and not aguardando
     btn_cancelar = ''
     if not enviado_ok and not cancelado_ja:
         btn_cancelar = f"""
