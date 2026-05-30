@@ -3073,7 +3073,7 @@ def painel_detalhes(job_id):
                       f'<td class="valor">{valor_fmt}{aviso}</td></tr>')
         exames_html = (
             '<h3 style="font-family:sans-serif;color:#9B27AF;margin:26px 0 8px;">'
-            '🔬 Exames recebidos (lidos pela IA)</h3>'
+            '🔬 Informações extraídas dos exames</h3>'
             '<table style="width:100%;border-collapse:collapse;">' + itens + '</table>'
         )
 
