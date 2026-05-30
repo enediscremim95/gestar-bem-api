@@ -33,6 +33,15 @@ logging.basicConfig(level=logging.INFO)
 # Fuso horário de Brasília (UTC-3) — usado em exibições de data/hora no painel e relatórios
 TZ_SP = timezone(timedelta(hours=-3))
 
+
+def _fmt_sp(dt, fmt='%d/%m/%Y %H:%M', vazio='-'):
+    """Formata um datetime do banco (UTC) já convertido para horário de Brasília."""
+    if not dt:
+        return vazio
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_SP).strftime(fmt)
+
 # Cliente Anthropic — criado uma vez na inicializacao do servidor
 # timeout=300s: mesmo padrao do gunicorn, evita thread pendurada para sempre
 _anthropic_client = anthropic.Anthropic(
@@ -653,7 +662,7 @@ def check_diario():
             linhas.append(f"Anthropic API: erro ({str(e)[:80]})")
 
     # ── 5. Montar e enviar relatorio ───────────────────────────────────────
-    data_hora = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')
+    data_hora = datetime.now(TZ_SP).strftime('%d/%m/%Y %H:%M')
     situacao  = "tudo certo" if not alertas else "\n".join(alertas)
     acao      = "nenhuma"    if not alertas else "ver alertas acima"
 
@@ -2624,8 +2633,8 @@ def painel():
         else:
             status = f'⚠️ Tentativas: {tentativas}'
         cor    = linha_cor(processado, tentativas, erro, aguardando)
-        ag_str = agendado.strftime('%d/%m %H:%M') if agendado else '-'
-        pr_str = processado_em.strftime('%d/%m %H:%M') if processado_em else '-'
+        ag_str = _fmt_sp(agendado, '%d/%m %H:%M')
+        pr_str = _fmt_sp(processado_em, '%d/%m %H:%M')
         linhas_html += f"""
         <tr style="background:{cor}">
             <td>{rid}</td>
@@ -2936,7 +2945,7 @@ def painel_buscar():
             status = '✅'
         else:
             status = f'⚠️ {tentativas}x'
-        data_str  = criado_em.strftime('%d/%m/%Y') if criado_em else '-'
+        data_str  = _fmt_sp(criado_em, '%d/%m/%Y')
         try:
             sw = int(''.join(filter(str.isdigit, semanas or '0')) or '0')
         except Exception:
@@ -3069,7 +3078,7 @@ def painel_detalhes(job_id):
         status = f'❌ Falhou após {tentativas}x'
     else:
         status = f'⚠️ {tentativas} tentativa(s)'
-    data_str   = criado_em.strftime('%d/%m/%Y às %H:%M') if criado_em else '-'
+    data_str   = _fmt_sp(criado_em, '%d/%m/%Y às %H:%M')
     nome_s     = _html.escape(nome)
     token_safe = urllib.parse.quote(token_recebido, safe='')
     email_enc  = urllib.parse.quote(dados.get('email', ''), safe='')
