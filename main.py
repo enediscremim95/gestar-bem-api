@@ -42,6 +42,33 @@ def _fmt_sp(dt, fmt='%d/%m/%Y %H:%M', vazio='-'):
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(TZ_SP).strftime(fmt)
 
+
+# Janela de envio em horário comercial (horário de Brasília)
+COMERCIAL_HORA_INICIO = 8    # 08:00
+COMERCIAL_HORA_FIM    = 19   # até 18:59 (19h é o limite)
+
+
+def _ajustar_horario_comercial(dt_sp):
+    """
+    Empurra um datetime (em TZ_SP) para o próximo horário comercial válido.
+    Janela: segunda a sábado, das 8h às 19h. Domingo não envia.
+    """
+    while True:
+        # weekday(): 0=seg ... 5=sáb, 6=dom
+        if dt_sp.weekday() == 6:  # domingo → segunda 8h
+            dt_sp = (dt_sp + timedelta(days=1)).replace(
+                hour=COMERCIAL_HORA_INICIO, minute=0, second=0, microsecond=0)
+            continue
+        if dt_sp.hour < COMERCIAL_HORA_INICIO:  # antes das 8h → 8h do mesmo dia
+            dt_sp = dt_sp.replace(
+                hour=COMERCIAL_HORA_INICIO, minute=0, second=0, microsecond=0)
+            continue
+        if dt_sp.hour >= COMERCIAL_HORA_FIM:  # 19h ou mais → 8h do dia seguinte
+            dt_sp = (dt_sp + timedelta(days=1)).replace(
+                hour=COMERCIAL_HORA_INICIO, minute=0, second=0, microsecond=0)
+            continue
+        return dt_sp  # dia seg-sáb, hora entre 8h e 19h → válido
+
 # Cliente Anthropic — criado uma vez na inicializacao do servidor
 # timeout=300s: mesmo padrao do gunicorn, evita thread pendurada para sempre
 _anthropic_client = anthropic.Anthropic(
@@ -1580,6 +1607,11 @@ def gerar_plano():
     nome          = dados.get('nome', 'Paciente')
     email         = dados.get('email', '')
     agendado_para = datetime.now(timezone.utc) + timedelta(hours=DELAY_HORAS)
+    # Em produção (DELAY > 0), ajusta para a janela comercial (seg-sáb, 8h-19h).
+    # Em modo teste (DELAY = 0), mantém imediato para não atrapalhar os testes.
+    if DELAY_HORAS > 0:
+        agendado_para = _ajustar_horario_comercial(
+            agendado_para.astimezone(TZ_SP)).astimezone(timezone.utc)
     minutos       = round(DELAY_HORAS * 60)
 
     # Extrair imagens de exames do payload antes de salvar (nao ficam no JSONB)
@@ -1620,9 +1652,13 @@ def gerar_plano():
         cur.close()
         n_imgs = len(imagens_exame)
         log.info(f"Plano de {nome} agendado (id={plano_id}, {n_imgs} imagem(s) de exame)")
+        if DELAY_HORAS > 0:
+            msg = f"Plano de {nome} agendado. Envio programado para {_fmt_sp(agendado_para)} (Brasília)."
+        else:
+            msg = f"Plano de {nome} agendado. Email sera enviado em {minutos} minuto(s)."
         return jsonify({
             "status":   "agendado",
-            "mensagem": f"Plano de {nome} agendado. Email sera enviado em {minutos} minuto(s).",
+            "mensagem": msg,
             "nome":     nome,
             "email":    email,
         })
