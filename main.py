@@ -3005,7 +3005,7 @@ def painel_detalhes(job_id):
         cur.execute("""
             SELECT dados, criado_em, processado, tentativas, erro,
                    aguardando_aprovacao, motivo_aprovacao,
-                   (pdf_base64 IS NOT NULL) AS tem_pdf
+                   (pdf_base64 IS NOT NULL) AS tem_pdf, agendado_para
             FROM planos_agendados WHERE id = %s
         """, (job_id,))
         row = cur.fetchone()
@@ -3025,7 +3025,7 @@ def painel_detalhes(job_id):
     if not row:
         return '<h2>Registro nao encontrado.</h2>', 404
 
-    dados, criado_em, processado, tentativas, erro, aguardando, motivo_aprov, tem_pdf = row
+    dados, criado_em, processado, tentativas, erro, aguardando, motivo_aprov, tem_pdf, agendado_para = row
     nome  = dados.get('nome', '-')
     email = dados.get('email', '-')
 
@@ -3097,6 +3097,17 @@ def painel_detalhes(job_id):
     email_enc  = urllib.parse.quote(dados.get('email', ''), safe='')
     voltar_busca = f"/painel/buscar?token={token_safe}&email={email_enc}"
     erro_s    = _html.escape(erro) if erro else ''
+
+    # Aviso do horário programado de envio (só para planos ainda na fila)
+    cancelado_chk = bool(erro and erro.startswith('CANCELADO'))
+    envio_html = ''
+    if not processado and not cancelado_chk and agendado_para:
+        envio_html = (
+            '<div style="background:#f3e5f5;border-left:4px solid #9B27AF;'
+            'padding:12px 16px;border-radius:6px;margin:16px 0;font-size:14px;color:#444;">'
+            f'📅 <strong>Envio programado para:</strong> {_fmt_sp(agendado_para, "%d/%m/%Y às %H:%M")} (horário de Brasília)'
+            '</div>'
+        )
 
     btn_preview = ''
     if tem_pdf:
@@ -3209,6 +3220,7 @@ def painel_detalhes(job_id):
     <a href="/painel?token={token_recebido}" class="btn" style="background:#6c757d;margin-bottom:20px;display:inline-block;">← Voltar</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
     <p style="color:#888;font-size:13px;margin-top:0">{data_str} &nbsp;|&nbsp; {status}</p>
+    {envio_html}
     <div style="margin-bottom:16px;">
       <a href="{voltar_busca}" class="btn" style="background:#9B27AF;">📋 Ver histórico da paciente</a>
     </div>
