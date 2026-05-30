@@ -1363,14 +1363,23 @@ def calcular_dados_clinicos(dados):
 CAMPOS_EXAME_IMAGEM = {
     'img_glicose':             'exame_glicose',
     'img_hemoglobina_glicada': 'exame_hemoglobina_glicada',
+    'img_totg':                'exame_totg',
     'img_vitamina_d':          'exame_vitamina_d',
     'img_vitamina_b12':        'exame_vitamina_b12',
     'img_ferritina':           'exame_ferritina',
+    'img_ferro_serico':        'exame_ferro_serico',
+    'img_sat_transferrina':    'exame_sat_transferrina',
     'img_tsh':                 'exame_tsh',
     'img_t4_livre':            'exame_t4_livre',
     'img_insulina_jejum':      'exame_insulina_jejum',
-    'img_ferro_serico':        'exame_ferro_serico',
     'img_hemograma':           'exame_hemograma',
+    'img_acido_folico':        'exame_acido_folico',
+    'img_calcio':              'exame_calcio',
+    'img_magnesio':            'exame_magnesio',
+    'img_zinco':               'exame_zinco',
+    'img_creatinina':          'exame_creatinina',
+    'img_colesterol':          'exame_colesterol',
+    'img_triglicerideos':      'exame_triglicerideos',
 }
 
 
