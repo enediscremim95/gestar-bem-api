@@ -1545,13 +1545,17 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
             if generico:
                 msg = _anthropic_client.messages.create(
                     model="claude-haiku-4-5",
-                    max_tokens=1500,
+                    max_tokens=3000,
                     messages=[{"role": "user", "content": [
                         content_block,
                         {"type": "text", "text": (
                             "Este documento tem resultados de exames laboratoriais de uma gestante.\n"
-                            "Extraia o NOME do paciente e TODOS os exames que encontrar (cada um com valor e unidade).\n"
-                            "Responda APENAS em JSON, sem texto adicional:\n"
+                            "Extraia o NOME do paciente e os exames que encontrar (cada um com valor e unidade).\n"
+                            "Foque nestes exames quando existirem: glicose/glicemia, hemoglobina glicada, "
+                            "insulina, TOTG, hemograma, ferritina, ferro sérico, saturação de transferrina, "
+                            "vitamina D, vitamina B12, TSH, T4 livre, ácido fólico, cálcio, magnésio, zinco, "
+                            "creatinina, colesterol, triglicerídeos.\n"
+                            "Responda APENAS em JSON válido, sem texto adicional:\n"
                             '{"nome": "...", "exames": [{"nome": "...", "valor": "...", "unidade": "..."}]}'
                         )}
                     ]}]
