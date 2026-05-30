@@ -464,7 +464,11 @@ def _requer_aprovacao(dados, calculos):
     quadros = str(dados.get('quadros_clinicos', '')).lower()
     dg_declarada = 'diabetes gestacional' in quadros or bool(re.search(r'\bdg\b', quadros))
     if not dg_declarada:
-        glicose = dados.get('exame_glicose', '?')
+        glicose_raw = dados.get('exame_glicose', '?')
+        try:
+            glicose = f"{_extrair_numero(glicose_raw):g}"
+        except Exception:
+            glicose = str(glicose_raw)
         return True, (
             f"Glicose {glicose} mg/dL detectada — paciente possivelmente não sabe que tem DG. "
             f"Entre em contato com ela para informar o diagnóstico antes de enviar o plano."
