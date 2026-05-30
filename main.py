@@ -1409,6 +1409,43 @@ CAMPOS_EXAME_IMAGEM = {
     'img_triglicerideos':      'exame_triglicerideos',
 }
 
+# Mapa para traduzir o NOME do exame lido pela IA (campo único de upload) para o
+# campo interno. Cada entrada: (lista de palavras-chave normalizadas, campo destino).
+# Usado no modelo novo (1 campo "Anexe seus exames" com vários arquivos PDF/foto).
+MAPA_NOME_EXAME = [
+    (['hemoglobina glicada', 'hba1c', 'glicada'], 'exame_hemoglobina_glicada'),
+    (['glicose', 'glicemia'],                     'exame_glicose'),
+    (['insulina'],                                'exame_insulina_jejum'),
+    (['totg', 'tolerancia a glicose', 'ttog'],    'exame_totg'),
+    (['hemograma', 'hemoglobina'],                'exame_hemograma'),
+    (['ferritina'],                               'exame_ferritina'),
+    (['saturacao de transferrina', 'saturacao'],  'exame_sat_transferrina'),
+    (['ferro serico', 'ferro'],                   'exame_ferro_serico'),
+    (['vitamina d', '25-hidroxi', 'colecalciferol'], 'exame_vitamina_d'),
+    (['vitamina b12', 'b12', 'cobalamina'],       'exame_vitamina_b12'),
+    (['tsh', 'tireoestimulante'],                 'exame_tsh'),
+    (['t4 livre', 't4', 'tiroxina'],              'exame_t4_livre'),
+    (['acido folico', 'folato'],                  'exame_acido_folico'),
+    (['calcio'],                                  'exame_calcio'),
+    (['magnesio'],                                'exame_magnesio'),
+    (['zinco'],                                   'exame_zinco'),
+    (['creatinina'],                              'exame_creatinina'),
+    (['colesterol'],                              'exame_colesterol'),
+    (['triglicer'],                               'exame_triglicerideos'),
+]
+
+
+def _mapear_nome_exame(nome_exame):
+    """Traduz o nome de um exame lido pela IA para o campo interno (exame_*). None se não reconhecer."""
+    n = _normalizar_nome(nome_exame)
+    if not n:
+        return None
+    for chaves, campo in MAPA_NOME_EXAME:
+        for c in chaves:
+            if c in n:
+                return campo
+    return None
+
 
 def _normalizar_nome(nome):
     return unicodedata.normalize('NFD', nome or '').encode('ascii', 'ignore').decode().lower().strip()
@@ -1495,71 +1532,82 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
 
         try:
             img_b64 = base64.b64encode(bytes(imagem_bytes)).decode('utf-8')
-            label   = campo.replace('img_', '').replace('_', ' ').upper()
-
-            # Monta o bloco de conteúdo correto conforme o tipo do arquivo
             if mime_type == 'application/pdf':
-                content_block = {
-                    "type": "document",
-                    "source": {"type": "base64", "media_type": "application/pdf", "data": img_b64}
-                }
-                max_tok = 400  # PDFs podem ter vários exames numa página
+                content_block = {"type": "document",
+                                 "source": {"type": "base64", "media_type": "application/pdf", "data": img_b64}}
             else:
-                content_block = {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": mime_type, "data": img_b64}
-                }
-                max_tok = 200
+                content_block = {"type": "image",
+                                 "source": {"type": "base64", "media_type": mime_type, "data": img_b64}}
 
-            msg = _anthropic_client.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=max_tok,
-                messages=[{"role": "user", "content": [
-                    content_block,
-                    {"type": "text",
-                     "text": (
-                         f"Documento de resultado de exame laboratorial.\n"
-                         f"Extraia as seguintes informações:\n"
-                         f"1. Nome completo do paciente\n"
-                         f"2. Valor numérico do exame: {label}\n"
-                         f"3. Unidade de medida desse exame\n\n"
-                         f"Se for um PDF com múltiplos exames, procure especificamente por: {label}.\n"
-                         f"Responda APENAS em JSON, sem texto adicional:\n"
-                         f'{{\"nome\": \"...\", \"valor\": \"...\", \"unidade\": \"...\"}}\n'
-                         f"Use null se não encontrar o campo."
-                     )}
-                ]}]
-            )
+            # Modelo novo: campo único de upload ('img_exame_N') pode conter VÁRIOS exames.
+            generico = campo.startswith('img_exame')
 
-            try:
+            if generico:
+                msg = _anthropic_client.messages.create(
+                    model="claude-haiku-4-5",
+                    max_tokens=1500,
+                    messages=[{"role": "user", "content": [
+                        content_block,
+                        {"type": "text", "text": (
+                            "Este documento tem resultados de exames laboratoriais de uma gestante.\n"
+                            "Extraia o NOME do paciente e TODOS os exames que encontrar (cada um com valor e unidade).\n"
+                            "Responda APENAS em JSON, sem texto adicional:\n"
+                            '{"nome": "...", "exames": [{"nome": "...", "valor": "...", "unidade": "..."}]}'
+                        )}
+                    ]}]
+                )
                 texto_resp = msg.content[0].text.strip()
-                # Haiku às vezes embrulha o JSON em code fence (```json ... ```).
-                # Extrai o primeiro objeto {...} da resposta para ser robusto a isso.
-                match = re.search(r'\{.*\}', texto_resp, re.DOTALL)
-                r = json.loads(match.group(0) if match else texto_resp)
-            except (json.JSONDecodeError, AttributeError):
-                log.warning(f"[VISION] Claude retornou resposta não-JSON para {campo} plano={plano_id}: {msg.content[0].text[:100]}")
-                updates.append((None, None, None, False, img_id))
-                continue
+                m = re.search(r'\{.*\}', texto_resp, re.DOTALL)
+                r = json.loads(m.group(0)) if m else {}
+                nome_exame = r.get('nome')
+                lista = r.get('exames') or []
 
-            nome_exame     = r.get('nome')
-            valor_extraido = r.get('valor')
-            unidade        = r.get('unidade')
-            alerta         = False
+                alerta = bool(nome_exame and not _nomes_batem(nome_paciente, nome_exame))
+                if alerta:
+                    log.warning(f"[VISION] Exame de outra pessoa — plano={plano_id} '{nome_exame}'")
+                    _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_exame)
 
-            if nome_exame and not _nomes_batem(nome_paciente, nome_exame):
-                alerta = True
-                log.warning(f"[VISION] Exame errado — plano={plano_id} campo={campo} "
-                             f"paciente='{nome_paciente}' exame='{nome_exame}'")
-                _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_exame)
+                resumo = []
+                if not alerta:
+                    for ex in lista:
+                        cd = _mapear_nome_exame(ex.get('nome'))
+                        v  = ex.get('valor')
+                        if cd and v:
+                            u = ex.get('unidade') or ''
+                            valores[cd] = f"{v} {u}".strip()
+                            resumo.append(f"{ex.get('nome')}: {valores[cd]}")
+                            log.info(f"[VISION] {campo}: {ex.get('nome')} → {valores[cd]}")
+                updates.append((nome_exame, (' | '.join(resumo))[:500] if resumo else None, None, alerta, img_id))
 
-            updates.append((nome_exame, valor_extraido, unidade, alerta, img_id))
-
-            if not alerta and valor_extraido:
-                campo_destino = CAMPOS_EXAME_IMAGEM.get(campo)
-                if campo_destino:
-                    valores[campo_destino] = f"{valor_extraido} {unidade or ''}".strip()
-                    log.info(f"[VISION] {campo} → {valores[campo_destino]}")
+            else:
+                # Modelo legado: 1 campo = 1 exame específico
+                label = campo.replace('img_', '').replace('_', ' ').upper()
+                msg = _anthropic_client.messages.create(
+                    model="claude-haiku-4-5",
+                    max_tokens=400 if mime_type == 'application/pdf' else 200,
+                    messages=[{"role": "user", "content": [
+                        content_block,
+                        {"type": "text", "text": (
+                            f"Documento de resultado de exame laboratorial.\n"
+                            f"Extraia: 1. Nome completo do paciente 2. Valor numérico do exame: {label} 3. Unidade.\n"
+                            f"Se for PDF com vários exames, procure especificamente por: {label}.\n"
+                            f'Responda APENAS em JSON: {{"nome":"...","valor":"...","unidade":"..."}} (null se não achar).'
+                        )}
+                    ]}]
+                )
+                texto_resp = msg.content[0].text.strip()
+                m = re.search(r'\{.*\}', texto_resp, re.DOTALL)
+                r = json.loads(m.group(0)) if m else {}
+                nome_exame = r.get('nome'); valor_extraido = r.get('valor'); unidade = r.get('unidade')
+                alerta = bool(nome_exame and not _nomes_batem(nome_paciente, nome_exame))
+                if alerta:
+                    _enviar_alerta_exame_errado(plano_id, nome_paciente, whatsapp, campo, nome_exame)
+                updates.append((nome_exame, valor_extraido, unidade, alerta, img_id))
+                if not alerta and valor_extraido:
+                    cd = CAMPOS_EXAME_IMAGEM.get(campo)
+                    if cd:
+                        valores[cd] = f"{valor_extraido} {unidade or ''}".strip()
+                        log.info(f"[VISION] {campo} → {valores[cd]}")
 
         except Exception as e:
             log.warning(f"[VISION] Erro ao processar {campo} plano={plano_id}: {e}")
@@ -1614,11 +1662,12 @@ def gerar_plano():
             agendado_para.astimezone(TZ_SP)).astimezone(timezone.utc)
     minutos       = round(DELAY_HORAS * 60)
 
-    # Extrair imagens de exames do payload antes de salvar (nao ficam no JSONB)
+    # Extrair imagens de exames do payload antes de salvar (nao ficam no JSONB).
+    # Captura tanto os campos específicos legados (img_glicose...) quanto o campo
+    # único novo (img_exame_0, img_exame_1...). Qualquer chave 'img_' é exame.
     imagens_exame = {}
-    for campo_img in list(CAMPOS_EXAME_IMAGEM.keys()):
-        if campo_img in dados:
-            imagens_exame[campo_img] = dados.pop(campo_img)
+    for campo_img in [k for k in list(dados.keys()) if k.startswith('img_')]:
+        imagens_exame[campo_img] = dados.pop(campo_img)
 
     conn = None
     try:
@@ -3101,12 +3150,27 @@ def painel_detalhes(job_id):
     if exames_rows:
         itens = ''
         for campo, valor_ext, unidade, alerta in exames_rows:
+            aviso = ' <span style="color:#e67e22;">(nome do exame difere da paciente)</span>' if alerta else ''
+            # Modelo novo (campo único): valor_ext é um resumo "Nome: valor | Nome: valor"
+            if campo and campo.startswith('img_exame'):
+                if valor_ext:
+                    for parte in str(valor_ext).split(' | '):
+                        if ':' in parte:
+                            lbl, val = parte.split(':', 1)
+                        else:
+                            lbl, val = 'Exame', parte
+                        itens += (f'<tr><td class="label">{_html.escape(lbl.strip())}</td>'
+                                  f'<td class="valor">{_html.escape(val.strip())}</td></tr>')
+                else:
+                    itens += ('<tr><td class="label">Exames</td>'
+                              f'<td class="valor"><span style="color:#c0392b;">⚠️ não lido</span>{aviso}</td></tr>')
+                continue
+            # Modelo legado (1 campo por exame)
             label_ex = EXAME_LABELS.get(campo, campo.replace('img_', '').replace('_', ' ').title())
             if valor_ext:
                 valor_fmt = _html.escape(f"{valor_ext} {unidade or ''}".strip())
             else:
                 valor_fmt = '<span style="color:#c0392b;">⚠️ não lido</span>'
-            aviso = ' <span style="color:#e67e22;">(nome do exame difere da paciente)</span>' if alerta else ''
             itens += (f'<tr><td class="label">{_html.escape(label_ex)}</td>'
                       f'<td class="valor">{valor_fmt}{aviso}</td></tr>')
         exames_html = (
