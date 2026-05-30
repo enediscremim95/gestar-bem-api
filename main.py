@@ -2631,7 +2631,9 @@ def painel():
         nome_s  = _html.escape(nome  or '-')
         email_s = _html.escape(email or '-')
         erro_s  = _html.escape((erro[:60] + '...') if erro and len(erro) > 60 else (erro or ''))
-        if aguardando:
+        if erro and erro.startswith('CANCELADO'):
+            status = '🚫 Cancelado'
+        elif aguardando:
             status = '🔵 Aprovação'
         elif processado and not erro:
             status = '✅ Enviado'
@@ -3077,7 +3079,9 @@ def painel_detalhes(job_id):
             '<table style="width:100%;border-collapse:collapse;">' + itens + '</table>'
         )
 
-    if aguardando:
+    if erro and erro.startswith('CANCELADO'):
+        status = '🚫 Cancelado'
+    elif aguardando:
         status = '🔵 Aguardando Aprovação'
     elif processado and not erro:
         status = '✅ Enviado com sucesso'
@@ -3181,6 +3185,26 @@ def painel_detalhes(job_id):
       Reprocessar zera tentativas, gera novo plano e envia novo email para a paciente.
     </p>"""
 
+    # Botão de cancelar: só aparece se o plano ainda pode ser parado
+    # (não enviado com sucesso e não já cancelado)
+    cancelado_ja = bool(erro and erro.startswith('CANCELADO'))
+    enviado_ok   = processado and not erro
+    btn_cancelar = ''
+    if not enviado_ok and not cancelado_ja:
+        btn_cancelar = f"""
+    <form method="POST" action="/painel/cancelar/{job_id}?token={token_safe}"
+          onsubmit="return confirm('Cancelar este plano? Ele sai da fila e NENHUM email será enviado para a paciente.');"
+          style="margin-top:14px;display:block;">
+      <button type="submit"
+        style="background:#c0392b;color:#fff;border:none;border-radius:8px;
+               padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;">
+        🚫 Cancelar envio
+      </button>
+    </form>
+    <p style="color:#888;font-size:12px;margin-top:6px;">
+      Cancelar impede o envio do email e tira o plano da fila. Pode reprocessar depois se mudar de ideia.
+    </p>"""
+
     conteudo = f"""
     <a href="/painel?token={token_recebido}" class="btn" style="background:#6c757d;margin-bottom:20px;display:inline-block;">← Voltar</a>
     <h2 style="color:#9B27AF;margin-bottom:4px">📋 Detalhes do envio #{job_id}</h2>
@@ -3192,11 +3216,12 @@ def painel_detalhes(job_id):
       <tbody>{linhas}</tbody>
     </table>
     {exames_html}
-    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro and not aguardando else ''}
+    {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro and not aguardando and not cancelado_ja else ''}
     {btn_preview}
     {btn_aprovar}
     {form_editar}
-    {btn_reprocessar}"""
+    {btn_reprocessar}
+    {btn_cancelar}"""
 
     return _painel_html_base(token_recebido, conteudo), 200
 
@@ -3240,6 +3265,43 @@ def painel_reprocessar(job_id):
     except Exception as e:
         log.error(f"[REPROCESSAR] Erro ao resetar plano {job_id}: {e}")
         return '<h2 style="font-family:sans-serif;color:#c00">Erro interno ao reprocessar.</h2>', 500
+    finally:
+        if conn:
+            conn.close()
+
+    token_safe = urllib.parse.quote(token_recebido, safe='')
+    return redirect(f"/painel/detalhes/{job_id}?token={token_safe}")
+
+
+@app.route('/painel/cancelar/<int:job_id>', methods=['POST'])
+def painel_cancelar(job_id):
+    """Cancela um plano: tira da fila e impede o envio do email à paciente."""
+    token_esperado = os.environ.get('PAINEL_TOKEN', '')
+    token_recebido = request.args.get('token', '')
+    if not token_esperado or token_recebido != token_esperado:
+        return '<h2 style="font-family:sans-serif;color:#c00">Acesso negado.</h2>', 403
+
+    conn = None
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            UPDATE planos_agendados
+            SET processado            = TRUE,
+                aguardando_aprovacao  = FALSE,
+                proxima_tentativa     = NULL,
+                erro                  = 'CANCELADO: cancelado manualmente no painel',
+                pdf_base64            = NULL
+            WHERE id = %s
+        """, (job_id,))
+        if cur.rowcount == 0:
+            return '<h2 style="font-family:sans-serif;color:#c00">Plano não encontrado.</h2>', 404
+        conn.commit()
+        cur.close()
+        log.info(f"[CANCELAR] Plano {job_id} cancelado via painel")
+    except Exception as e:
+        log.error(f"[CANCELAR] Erro ao cancelar plano {job_id}: {e}")
+        return '<h2 style="font-family:sans-serif;color:#c00">Erro interno ao cancelar.</h2>', 500
     finally:
         if conn:
             conn.close()
