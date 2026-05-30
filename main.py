@@ -1483,8 +1483,12 @@ def processar_imagens_exames(plano_id, nome_paciente, whatsapp=''):
             )
 
             try:
-                r = json.loads(msg.content[0].text.strip())
-            except json.JSONDecodeError:
+                texto_resp = msg.content[0].text.strip()
+                # Haiku às vezes embrulha o JSON em code fence (```json ... ```).
+                # Extrai o primeiro objeto {...} da resposta para ser robusto a isso.
+                match = re.search(r'\{.*\}', texto_resp, re.DOTALL)
+                r = json.loads(match.group(0) if match else texto_resp)
+            except (json.JSONDecodeError, AttributeError):
                 log.warning(f"[VISION] Claude retornou resposta não-JSON para {campo} plano={plano_id}: {msg.content[0].text[:100]}")
                 updates.append((None, None, None, False, img_id))
                 continue
@@ -2981,6 +2985,12 @@ def painel_detalhes(job_id):
             FROM planos_agendados WHERE id = %s
         """, (job_id,))
         row = cur.fetchone()
+        # Exames lidos pela Vision (valores extraídos das imagens enviadas no Forms)
+        cur.execute("""
+            SELECT campo, valor_extraido, unidade, alerta_nome
+            FROM exames_imagens WHERE plano_id = %s ORDER BY campo
+        """, (job_id,))
+        exames_rows = cur.fetchall()
         cur.close()
     except Exception as e:
         log.error(f"[PAINEL/DETALHES] Erro ao consultar banco: {e}")
@@ -3015,6 +3025,35 @@ def painel_detalhes(job_id):
         valor = dados.get(chave, '')
         if valor:
             linhas += f'<tr><td class="label">{_html.escape(str(label))}</td><td class="valor">{_html.escape(str(valor))}</td></tr>'
+
+    # Seção de exames lidos pela Vision (valores extraídos das imagens do Forms)
+    EXAME_LABELS = {
+        'img_glicose': 'Glicose em jejum', 'img_hemoglobina_glicada': 'Hemoglobina glicada',
+        'img_insulina_jejum': 'Insulina em jejum', 'img_totg': 'TOTG',
+        'img_hemograma': 'Hemograma', 'img_ferritina': 'Ferritina',
+        'img_ferro_serico': 'Ferro sérico', 'img_sat_transferrina': 'Saturação de transferrina',
+        'img_vitamina_d': 'Vitamina D', 'img_vitamina_b12': 'Vitamina B12',
+        'img_tsh': 'TSH', 'img_t4_livre': 'T4 livre', 'img_acido_folico': 'Ácido fólico',
+        'img_calcio': 'Cálcio', 'img_magnesio': 'Magnésio', 'img_zinco': 'Zinco',
+        'img_creatinina': 'Creatinina', 'img_colesterol': 'Colesterol', 'img_triglicerideos': 'Triglicerídeos',
+    }
+    exames_html = ''
+    if exames_rows:
+        itens = ''
+        for campo, valor_ext, unidade, alerta in exames_rows:
+            label_ex = EXAME_LABELS.get(campo, campo.replace('img_', '').replace('_', ' ').title())
+            if valor_ext:
+                valor_fmt = _html.escape(f"{valor_ext} {unidade or ''}".strip())
+            else:
+                valor_fmt = '<span style="color:#c0392b;">⚠️ não lido</span>'
+            aviso = ' <span style="color:#e67e22;">(nome do exame difere da paciente)</span>' if alerta else ''
+            itens += (f'<tr><td class="label">{_html.escape(label_ex)}</td>'
+                      f'<td class="valor">{valor_fmt}{aviso}</td></tr>')
+        exames_html = (
+            '<h3 style="font-family:sans-serif;color:#9B27AF;margin:26px 0 8px;">'
+            '🔬 Exames recebidos (lidos pela IA)</h3>'
+            '<table style="width:100%;border-collapse:collapse;">' + itens + '</table>'
+        )
 
     if aguardando:
         status = '🔵 Aguardando Aprovação'
@@ -3130,6 +3169,7 @@ def painel_detalhes(job_id):
     <table style="max-width:700px">
       <tbody>{linhas}</tbody>
     </table>
+    {exames_html}
     {'<p style="color:#c00;margin-top:16px;font-size:13px"><strong>Erro:</strong> ' + erro_s + '</p>' if erro and not aguardando else ''}
     {btn_preview}
     {btn_aprovar}
